@@ -1,0 +1,7 @@
+bin/
+obj/
+*.download
+ui_dump.txt
+# The built DLL at the root is a local build artefact; the published one lives in release/
+/DreamDpsMeter.dll
+/DreamDpsMeter.pdb
