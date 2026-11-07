@@ -2,7 +2,7 @@
 DPS meter intégré au HUD, client-side uniquement (ne modifie pas le gameplay).
 
 [b]En haut à gauche[/b] : dégâts de la run, DPS (DPS boss pendant un boss), soins, dégâts subis, or et Poussière de Rêve, classement des joueurs.
-[b]Maintenir Ctrl[/b] : détail par Mémoire, Essence, Passif et élément, soins et boucliers, DPS par boss et par zone.
+[b]Maintenir Ctrl[/b] : détail par Mémoire, Essence, Passif et élément, soins et boucliers (liste qui défile s'il y a trop de sources).
 [b]Écran de fin[/b] : dégâts de chaque mémoire / essence, DPS moyen, meilleur combat, DPS boss, toutes les sources de la run.
 
 Mises à jour automatiques depuis github.com/Ghermin/dream-dps-meter

@@ -51,6 +51,7 @@ namespace DreamDpsMeter
             if (!IsNewer(remote, ModVersion.Current))
             {
                 Debug.Log("[DreamDpsMeter] Up to date (" + ModVersion.Current + ").");
+                yield return SyncAboutFiles(bust);
                 yield break;
             }
 
@@ -99,6 +100,75 @@ namespace DreamDpsMeter
             {
                 Debug.LogWarning("[DreamDpsMeter] Could not install the update: " + e.Message);
             }
+        }
+
+        /// <summary>Files of the Mods menu (icon, preview, description) that only the DLL update would otherwise never refresh.</summary>
+        private static readonly string[] AboutFiles = { "icon.png", "preview.png", "description.txt" };
+
+        /// <summary>
+        /// Once per installed version: bring about/ in line with the repository (icon, preview, description).
+        /// A marker file remembers the version already synced, so this costs nothing on later launches.
+        /// </summary>
+        private IEnumerator SyncAboutFiles(string bust)
+        {
+            string dir = Path.Combine(mod.path, "about");
+            string marker = Path.Combine(dir, ".synced");
+            bool done = false;
+            try
+            {
+                done = File.Exists(marker) && File.ReadAllText(marker).Trim() == ModVersion.Current;
+            }
+            catch (Exception)
+            {
+                // unreadable marker: sync again
+            }
+            if (done) yield break;
+
+            bool ok = true;
+            foreach (string name in AboutFiles)
+            {
+                using (UnityWebRequest req = UnityWebRequest.Get(ModVersion.RawBase + "about/" + name + bust))
+                {
+                    req.timeout = 20;
+                    yield return req.SendWebRequest();
+                    byte[] data = req.result == UnityWebRequest.Result.Success ? req.downloadHandler.data : null;
+                    bool png = name.EndsWith(".png", StringComparison.OrdinalIgnoreCase);
+                    if (data == null || data.Length == 0 || (png && (data.Length < 8 || data[0] != 0x89 || data[1] != (byte)'P')))
+                    {
+                        ok = false;
+                        continue;
+                    }
+                    try
+                    {
+                        string path = Path.Combine(dir, name);
+                        if (!File.Exists(path) || !SameBytes(File.ReadAllBytes(path), data)) File.WriteAllBytes(path, data);
+                    }
+                    catch (Exception e)
+                    {
+                        ok = false;
+                        Debug.LogWarning("[DreamDpsMeter] Could not update about/" + name + ": " + e.Message);
+                    }
+                }
+            }
+            if (!ok) yield break;
+            try
+            {
+                File.WriteAllText(marker, ModVersion.Current);
+            }
+            catch (Exception)
+            {
+                // read-only folder: we will simply check again next launch
+            }
+        }
+
+        private static bool SameBytes(byte[] a, byte[] b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i] != b[i]) return false;
+            }
+            return true;
         }
 
         private static bool IsNewer(string remote, string local)
