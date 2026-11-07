@@ -301,8 +301,6 @@ namespace DreamDpsMeter
         /// Detail key held (Ctrl by default: "show details" / skill editing). Read from the keys, not from the stats
         /// window, which may be set to always show.
         /// </summary>
-        private static string _lastKeyLog;
-
         private static bool IsDetailKeyHeld()
         {
             try
@@ -315,13 +313,6 @@ namespace DreamDpsMeter
                     editHold = DewInput.GetButton(controls.editSkillHold, checkGameAreaForMouse: false);
                 }
                 EditSkillManager esm = ManagerBase<EditSkillManager>.softInstance;
-                string mode = esm != null ? esm.mode.ToString() : "none";
-                string state = "details=" + details + " editHold=" + editHold + " editMode=" + mode;
-                if (state != _lastKeyLog)
-                {
-                    _lastKeyLog = state;
-                    Debug.Log("[DreamDpsMeter] key " + state);
-                }
                 return details || editHold || (esm != null && esm.mode != EditSkillManager.ModeType.None);
             }
             catch

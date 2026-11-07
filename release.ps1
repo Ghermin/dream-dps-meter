@@ -1,7 +1,7 @@
 # Publie une nouvelle version :
 #   .\release.ps1          -> incrémente le dernier chiffre (1.1.0 -> 1.1.1)
 #   .\release.ps1 1.2.0    -> version choisie
-# - met à jour le numéro de version (code + metadata.json)
+# - met à jour le numéro de version (code, metadata.json, description du mod)
 # - compile en Release (trouve le jeu tout seul, que le dépôt soit dans Mods\ ou ailleurs)
 # - copie la DLL dans release\ et écrit release\version.txt (lus par l'installeur et la mise à jour auto)
 # - commit, tag et push sur GitHub : les joueurs la reçoivent au prochain lancement du jeu
@@ -49,6 +49,7 @@ Write-Host "Version : $current -> $Version" -ForegroundColor Cyan
 $versionFile = 'src\Version.cs'
 (Get-Content $versionFile -Raw) -replace 'Current = "[^"]*"', "Current = `"$Version`"" | Set-Content $versionFile -NoNewline
 (Get-Content 'about\metadata.json' -Raw) -replace '"modVer":\s*"[^"]*"', "`"modVer`": `"$Version`"" | Set-Content 'about\metadata.json' -NoNewline
+(Get-Content 'about\description.txt' -Raw) -replace '(?m)^Version \d+\.\d+\.\d+', "Version $Version" | Set-Content 'about\description.txt' -NoNewline
 
 dotnet build -c Release "-p:GameDir=$gameDir" | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "La compilation a échoué." }
