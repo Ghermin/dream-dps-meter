@@ -84,7 +84,6 @@ namespace DreamDpsMeter
         private const float ScrollbarGrab = 14f; // extra clickable width on each side of the thin bar
         private const float MinListHeight = 120f;
         private const float MinHandle = 24f;
-        private const float WheelStep = 42f;     // about one row per wheel notch
 
         private GameObject _ownCanvas;
         private RectTransform _content;
@@ -103,6 +102,17 @@ namespace DreamDpsMeter
         private bool _dragging;
         private float _dragStartY;
         private float _dragStartOffset;
+        private string _lastScrollLog;
+
+        /// <summary>A row of the scrolled list and its place in the full list.</summary>
+        private struct ListRow
+        {
+            public Row row;
+            public float x;
+            public float y;
+            public float h;
+        }
+        private readonly List<ListRow> _listRows = new List<ListRow>();
         private readonly List<Row> _rows = new List<Row>();
         private int _used;
         private TextStyle _headerStyle;
@@ -231,22 +241,41 @@ namespace DreamDpsMeter
                 float viewHeight = scroll ? maxList : listHeight;
                 float listWidth = inner - (scroll ? ScrollbarWidth + ScrollbarGap : 0f);
                 float ly = 0f;
+                _listRows.Clear();
                 for (int i = pinned; i < specs.Count; i++)
                 {
                     RowSpec s = specs[i];
                     Row r = NextRow(_list);
                     Layout(r, s, s.indent, ly, listWidth - s.indent);
+                    _listRows.Add(new ListRow { row = r, x = s.indent, y = ly, h = s.height });
                     ly += s.height + rowGap;
                 }
                 _viewport.anchoredPosition = new Vector2(padding.x, -y);
                 _viewport.sizeDelta = new Vector2(listWidth, viewHeight);
-                _list.sizeDelta = new Vector2(listWidth, listHeight);
+                _list.sizeDelta = new Vector2(listWidth, viewHeight);
                 _track.anchoredPosition = new Vector2(padding.x + inner - ScrollbarWidth, -y);
                 _track.sizeDelta = new Vector2(ScrollbarWidth, viewHeight);
                 if (_track.gameObject.activeSelf != scroll) _track.gameObject.SetActive(scroll);
                 _viewHeight = viewHeight;
                 _listHeight = listHeight;
-                _maxOffset = scroll ? listHeight - viewHeight : 0f;
+                // Furthest scroll: the first row from which every remaining row fits.
+                _maxOffset = 0f;
+                if (scroll)
+                {
+                    foreach (ListRow lr in _listRows)
+                    {
+                        _maxOffset = lr.y;
+                        if (listHeight - lr.y <= viewHeight + 0.5f) break;
+                    }
+                }
+                string state = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "scroll={0} list={1:0} view={2:0} maxHeight={3:0} rows={4}",
+                    scroll, listHeight, viewHeight, maxHeight, specs.Count);
+                if (state != _lastScrollLog)
+                {
+                    _lastScrollLog = state;
+                    Debug.Log("[DreamDpsMeter] " + rect.name + " " + state);
+                }
                 ApplyScroll();
                 height = y + viewHeight + padding.w;
             }
@@ -254,6 +283,7 @@ namespace DreamDpsMeter
             {
                 _maxOffset = 0f;
                 _dragging = false;
+                _listRows.Clear();
                 height = y - rowGap + padding.w;
             }
             if (_viewport != null && _viewport.gameObject.activeSelf != listHeight > 0f) _viewport.gameObject.SetActive(listHeight > 0f);
@@ -292,7 +322,7 @@ namespace DreamDpsMeter
                 return;
             }
             Camera cam = EventCamera();
-            bool overBar = RectTransformUtility.ScreenPointToLocalPointInRectangle(_track, screenPos, cam, out Vector2 barLocal)
+            bool overBar =RectTransformUtility.ScreenPointToLocalPointInRectangle(_track, screenPos, cam, out Vector2 barLocal)
                            && barLocal.x >= -ScrollbarGrab && barLocal.x <= ScrollbarWidth + ScrollbarGrab
                            && barLocal.y <= 0f && barLocal.y >= -_viewHeight;
             bool overList = RectTransformUtility.RectangleContainsScreenPoint(_viewport, screenPos, cam);
@@ -320,9 +350,32 @@ namespace DreamDpsMeter
             }
             if (Mathf.Abs(wheelNotches) > 0.001f && (overList || overBar))
             {
-                _scrollOffset -= wheelNotches * WheelStep;
+                // One row per notch (at least one row per wheel event).
+                int steps = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(wheelNotches)));
+                int idx = FirstShownRow() + (wheelNotches > 0f ? -steps : steps);
+                idx = Mathf.Clamp(idx, 0, _listRows.Count - 1);
+                _scrollOffset = _listRows[idx].y;
+                _dragging = false;
             }
             ApplyScroll();
+        }
+
+        /// <summary>Index of the row shown at the top for the current offset (offsets snap to row starts).</summary>
+        private int FirstShownRow()
+        {
+            int best = 0;
+            float bestDist = float.MaxValue;
+            for (int i = 0; i < _listRows.Count; i++)
+            {
+                if (_listRows[i].y > _maxOffset + 0.5f) break;
+                float d = Mathf.Abs(_listRows[i].y - _scrollOffset);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    best = i;
+                }
+            }
+            return best;
         }
 
         private Camera EventCamera()
@@ -339,16 +392,29 @@ namespace DreamDpsMeter
             return Mathf.Clamp(_viewHeight * _viewHeight / _listHeight, MinHandle, _viewHeight);
         }
 
-        /// <summary>Distance from the top of the bar to the top of the handle.</summary>
+        /// <summary>Distance from the top of the bar to the top of the handle (follows the rows actually shown).</summary>
         private float HandleY()
         {
-            return _maxOffset > 0f ? (_viewHeight - HandleHeight()) * (_scrollOffset / _maxOffset) : 0f;
+            if (_maxOffset <= 0f || _listRows.Count == 0) return 0f;
+            return (_viewHeight - HandleHeight()) * (_listRows[FirstShownRow()].y / _maxOffset);
         }
 
+        /// <summary>
+        /// Show the whole rows that fit from the current offset, hide the others. No mask: the stats window is
+        /// tilted in 3D and RectMask2D clips tilted content at the wrong place.
+        /// </summary>
         private void ApplyScroll()
         {
             _scrollOffset = Mathf.Clamp(_scrollOffset, 0f, Mathf.Max(0f, _maxOffset));
-            if (_list != null) _list.anchoredPosition = new Vector2(0f, Mathf.Round(_scrollOffset));
+            float off = _listRows.Count > 0 ? _listRows[FirstShownRow()].y : 0f;
+            foreach (ListRow lr in _listRows)
+            {
+                float top = lr.y - off;
+                bool shown = top >= -0.5f && top + lr.h <= _viewHeight + 0.5f;
+                GameObject go = lr.row.rt.gameObject;
+                if (go.activeSelf != shown) go.SetActive(shown);
+                if (shown) lr.row.rt.anchoredPosition = new Vector2(lr.x, -top);
+            }
             if (_handle != null)
             {
                 _handle.anchoredPosition = new Vector2(0f, -HandleY());
@@ -357,7 +423,7 @@ namespace DreamDpsMeter
             }
         }
 
-        /// <summary>Masked viewport + list, and a thin scrollbar beside it (created on first use).</summary>
+        /// <summary>Viewport + list (rows shown or hidden by ApplyScroll), and a thin scrollbar beside it (created on first use).</summary>
         private void EnsureScrollArea()
         {
             if (_viewport != null) return;
@@ -366,7 +432,6 @@ namespace DreamDpsMeter
             vp.transform.SetParent(rect, false);
             _viewport = (RectTransform)vp.transform;
             _viewport.anchorMin = _viewport.anchorMax = _viewport.pivot = new Vector2(0f, 1f);
-            vp.AddComponent<RectMask2D>();
 
             GameObject list = new GameObject("List", typeof(RectTransform));
             list.transform.SetParent(_viewport, false);

@@ -21,6 +21,7 @@ namespace DreamDpsMeter
 
         private void Start()
         {
+            AnnounceIfJustUpdated();
             DpsMeterMod meter = GetComponent<DpsMeterMod>();
             if (meter != null && !meter.config.autoUpdate) return;
             StartCoroutine(CheckForUpdate());
@@ -94,11 +95,88 @@ namespace DreamDpsMeter
                     File.WriteAllText(Path.Combine(mod.path, "about", "metadata.json"), metadata);
                 }
                 Debug.Log("[DreamDpsMeter] Updated " + ModVersion.Current + " -> " + remote + ".");
-                ShowToast("<b>Dream DPS Meter</b> mis à jour en v" + remote + "\nRedémarre le jeu pour l'appliquer.");
+                File.WriteAllText(Path.Combine(mod.path, "about", JustUpdatedFile), remote);
             }
             catch (Exception e)
             {
                 Debug.LogWarning("[DreamDpsMeter] Could not install the update: " + e.Message);
+                yield break;
+            }
+            yield return ApplyWhenSafe(remote);
+        }
+
+        /// <summary>Written before reloading, read by the new version to say it is running.</summary>
+        private const string JustUpdatedFile = ".updated";
+
+        /// <summary>
+        /// Load the new DLL right away through the game's own mod reload (the game reads the DLL as bytes, so
+        /// the file was free to replace). Only outside a run / lobby, like the game's mod manager.
+        /// </summary>
+        private IEnumerator ApplyWhenSafe(string remote)
+        {
+            bool told = false;
+            while (true)
+            {
+                bool autoReload = false;
+                try
+                {
+                    autoReload = DewMod.isAutoReloadEnabled; // developer auto-reload already picks the new file up
+                }
+                catch (Exception)
+                {
+                    // older game: no auto-reload flag
+                }
+                if (autoReload) yield break;
+                if (IsSafeToReload())
+                {
+                    Debug.Log("[DreamDpsMeter] Reloading mods to apply v" + remote + ".");
+                    try
+                    {
+                        DewMod.ReloadFromActiveMods(); // destroys this instance, then loads the new DLL
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning("[DreamDpsMeter] Reload failed, the update applies at the next launch: " + e.Message);
+                        ShowToast("<b>Dream DPS Meter</b> mis à jour en v" + remote + "\nRedémarre le jeu pour l'appliquer.");
+                    }
+                    yield break;
+                }
+                if (!told)
+                {
+                    told = true;
+                    ShowToast("<b>Dream DPS Meter</b> v" + remote + " téléchargée\nElle s'appliquera au retour au menu principal.");
+                }
+                yield return new WaitForSecondsRealtime(3f);
+            }
+        }
+
+        private static bool IsSafeToReload()
+        {
+            try
+            {
+                if (DewMod.isLoadingMod) return false;
+                if (Mirror.NetworkClient.active || Mirror.NetworkServer.active) return false; // run or lobby
+                return NetworkedManagerBase<ClientEventManager>.softInstance == null;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>After an in-game reload: confirm the new version is running.</summary>
+        private void AnnounceIfJustUpdated()
+        {
+            try
+            {
+                string path = Path.Combine(mod.path, "about", JustUpdatedFile);
+                if (!File.Exists(path)) return;
+                File.Delete(path);
+                ShowToast("<b>Dream DPS Meter</b> mis à jour en v" + ModVersion.Current);
+            }
+            catch (Exception)
+            {
+                // nothing to announce
             }
         }
 

@@ -8,3 +8,5 @@ ui_dump.txt
 
 # Written by the updater once the about/ files are synced
 about/.synced
+# Written by the updater right before applying a new version
+about/.updated
