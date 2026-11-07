@@ -81,15 +81,28 @@ namespace DreamDpsMeter
 
         private const float ScrollbarWidth = 6f;
         private const float ScrollbarGap = 8f;
+        private const float ScrollbarGrab = 14f; // extra clickable width on each side of the thin bar
         private const float MinListHeight = 120f;
+        private const float MinHandle = 24f;
+        private const float WheelStep = 42f;     // about one row per wheel notch
 
         private GameObject _ownCanvas;
         private RectTransform _content;
         private RectTransform _viewport;
-        private Image _viewportHit;
         private RectTransform _list;
-        private ScrollRect _scroll;
-        private Scrollbar _scrollbar;
+        private RectTransform _track;
+        private RectTransform _handle;
+        private Image _handleImage;
+
+        // Scrolling is driven by MeterPanel itself (HandlePointer), not by the EventSystem:
+        // the game's windows do not forward pointer events to our panel.
+        private float _scrollOffset;
+        private float _maxOffset;
+        private float _viewHeight;
+        private float _listHeight;
+        private bool _dragging;
+        private float _dragStartY;
+        private float _dragStartOffset;
         private readonly List<Row> _rows = new List<Row>();
         private int _used;
         private TextStyle _headerStyle;
@@ -111,7 +124,6 @@ namespace DreamDpsMeter
                 scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
                 scaler.referenceResolution = new Vector2(1920f, 1080f);
                 scaler.matchWidthOrHeight = 0.5f;
-                p._ownCanvas.AddComponent<GraphicRaycaster>(); // mouse wheel / drag on the scrollbar
                 host = p._ownCanvas.transform;
             }
 
@@ -229,21 +241,23 @@ namespace DreamDpsMeter
                 _viewport.anchoredPosition = new Vector2(padding.x, -y);
                 _viewport.sizeDelta = new Vector2(listWidth, viewHeight);
                 _list.sizeDelta = new Vector2(listWidth, listHeight);
-                if (!scroll) _list.anchoredPosition = Vector2.zero;
-                _viewportHit.raycastTarget = scroll; // only catch the mouse when there is something to scroll
-
-                RectTransform sbrt = (RectTransform)_scrollbar.transform;
-                sbrt.anchoredPosition = new Vector2(padding.x + inner - ScrollbarWidth, -y);
-                sbrt.sizeDelta = new Vector2(ScrollbarWidth, viewHeight);
-                if (_scrollbar.gameObject.activeSelf != scroll) _scrollbar.gameObject.SetActive(scroll);
+                _track.anchoredPosition = new Vector2(padding.x + inner - ScrollbarWidth, -y);
+                _track.sizeDelta = new Vector2(ScrollbarWidth, viewHeight);
+                if (_track.gameObject.activeSelf != scroll) _track.gameObject.SetActive(scroll);
+                _viewHeight = viewHeight;
+                _listHeight = listHeight;
+                _maxOffset = scroll ? listHeight - viewHeight : 0f;
+                ApplyScroll();
                 height = y + viewHeight + padding.w;
             }
             else
             {
+                _maxOffset = 0f;
+                _dragging = false;
                 height = y - rowGap + padding.w;
             }
             if (_viewport != null && _viewport.gameObject.activeSelf != listHeight > 0f) _viewport.gameObject.SetActive(listHeight > 0f);
-            if (_scrollbar != null && listHeight <= 0f && _scrollbar.gameObject.activeSelf) _scrollbar.gameObject.SetActive(false);
+            if (_track != null && listHeight <= 0f && _track.gameObject.activeSelf) _track.gameObject.SetActive(false);
 
             for (int i = _used; i < _rows.Count; i++)
             {
@@ -261,11 +275,89 @@ namespace DreamDpsMeter
         /// <summary>Back to the top of the scrolled list (e.g. when the panel is opened again).</summary>
         public void ScrollToTop()
         {
-            if (_list != null) _list.anchoredPosition = Vector2.zero;
-            if (_scroll != null) _scroll.StopMovement();
+            _scrollOffset = 0f;
+            _dragging = false;
+            ApplyScroll();
         }
 
-        /// <summary>Masked viewport + list moved by a ScrollRect, and a thin scrollbar beside it (created on first use).</summary>
+        /// <summary>
+        /// Mouse input for the scrolled list, called every frame while the panel is visible:
+        /// wheel over the list or the bar, drag of the bar handle, click on the bar to jump.
+        /// </summary>
+        public void HandlePointer(Vector2 screenPos, float wheelNotches, bool pressed, bool held)
+        {
+            if (!alive || _viewport == null || _maxOffset <= 0f || !_viewport.gameObject.activeInHierarchy)
+            {
+                _dragging = false;
+                return;
+            }
+            Camera cam = EventCamera();
+            bool overBar = RectTransformUtility.ScreenPointToLocalPointInRectangle(_track, screenPos, cam, out Vector2 barLocal)
+                           && barLocal.x >= -ScrollbarGrab && barLocal.x <= ScrollbarWidth + ScrollbarGrab
+                           && barLocal.y <= 0f && barLocal.y >= -_viewHeight;
+            bool overList = RectTransformUtility.RectangleContainsScreenPoint(_viewport, screenPos, cam);
+
+            if (!held) _dragging = false;
+            if (pressed && overBar)
+            {
+                float handleTop = -HandleY();
+                float handleBottom = handleTop - HandleHeight();
+                if (barLocal.y > handleTop || barLocal.y < handleBottom)
+                {
+                    // Click on the track: centre the handle there, then keep dragging from it.
+                    float travel = _viewHeight - HandleHeight();
+                    float t = travel > 0f ? Mathf.Clamp01((-barLocal.y - HandleHeight() * 0.5f) / travel) : 0f;
+                    _scrollOffset = t * _maxOffset;
+                }
+                _dragging = true;
+                _dragStartY = barLocal.y;
+                _dragStartOffset = _scrollOffset;
+            }
+            if (_dragging && held)
+            {
+                float travel = _viewHeight - HandleHeight();
+                if (travel > 0f) _scrollOffset = _dragStartOffset + (_dragStartY - barLocal.y) * (_maxOffset / travel);
+            }
+            if (Mathf.Abs(wheelNotches) > 0.001f && (overList || overBar))
+            {
+                _scrollOffset -= wheelNotches * WheelStep;
+            }
+            ApplyScroll();
+        }
+
+        private Camera EventCamera()
+        {
+            Canvas c = rect.GetComponentInParent<Canvas>();
+            if (c == null) return null;
+            c = c.rootCanvas;
+            return c.renderMode == RenderMode.ScreenSpaceOverlay ? null : c.worldCamera;
+        }
+
+        private float HandleHeight()
+        {
+            if (_listHeight <= 0f) return _viewHeight;
+            return Mathf.Clamp(_viewHeight * _viewHeight / _listHeight, MinHandle, _viewHeight);
+        }
+
+        /// <summary>Distance from the top of the bar to the top of the handle.</summary>
+        private float HandleY()
+        {
+            return _maxOffset > 0f ? (_viewHeight - HandleHeight()) * (_scrollOffset / _maxOffset) : 0f;
+        }
+
+        private void ApplyScroll()
+        {
+            _scrollOffset = Mathf.Clamp(_scrollOffset, 0f, Mathf.Max(0f, _maxOffset));
+            if (_list != null) _list.anchoredPosition = new Vector2(0f, Mathf.Round(_scrollOffset));
+            if (_handle != null)
+            {
+                _handle.anchoredPosition = new Vector2(0f, -HandleY());
+                _handle.sizeDelta = new Vector2(0f, HandleHeight());
+                _handleImage.color = _dragging ? new Color(scrollbarColor.r, scrollbarColor.g, scrollbarColor.b, 1f) : scrollbarColor;
+            }
+        }
+
+        /// <summary>Masked viewport + list, and a thin scrollbar beside it (created on first use).</summary>
         private void EnsureScrollArea()
         {
             if (_viewport != null) return;
@@ -274,8 +366,6 @@ namespace DreamDpsMeter
             vp.transform.SetParent(rect, false);
             _viewport = (RectTransform)vp.transform;
             _viewport.anchorMin = _viewport.anchorMax = _viewport.pivot = new Vector2(0f, 1f);
-            _viewportHit = vp.AddComponent<Image>();
-            _viewportHit.color = new Color(0f, 0f, 0f, 0f); // invisible, only receives the mouse wheel
             vp.AddComponent<RectMask2D>();
 
             GameObject list = new GameObject("List", typeof(RectTransform));
@@ -285,42 +375,22 @@ namespace DreamDpsMeter
 
             GameObject sb = new GameObject("Scrollbar", typeof(RectTransform));
             sb.transform.SetParent(rect, false);
-            RectTransform sbrt = (RectTransform)sb.transform;
-            sbrt.anchorMin = sbrt.anchorMax = sbrt.pivot = new Vector2(0f, 1f);
+            _track = (RectTransform)sb.transform;
+            _track.anchorMin = _track.anchorMax = _track.pivot = new Vector2(0f, 1f);
             Image track = sb.AddComponent<Image>();
+            track.raycastTarget = false;
             track.color = new Color(1f, 1f, 1f, 0.08f);
 
-            GameObject area = new GameObject("Sliding Area", typeof(RectTransform));
-            area.transform.SetParent(sb.transform, false);
-            RectTransform art = (RectTransform)area.transform;
-            art.anchorMin = Vector2.zero;
-            art.anchorMax = Vector2.one;
-            art.offsetMin = art.offsetMax = Vector2.zero;
-
             GameObject handle = new GameObject("Handle", typeof(RectTransform));
-            handle.transform.SetParent(area.transform, false);
-            RectTransform hrt = (RectTransform)handle.transform;
-            hrt.offsetMin = hrt.offsetMax = Vector2.zero;
-            Image himg = handle.AddComponent<Image>();
-            himg.color = scrollbarColor;
-
-            _scrollbar = sb.AddComponent<Scrollbar>();
-            _scrollbar.handleRect = hrt;
-            _scrollbar.targetGraphic = himg;
-            _scrollbar.direction = Scrollbar.Direction.BottomToTop;
-            _scrollbar.navigation = new Navigation { mode = Navigation.Mode.None }; // never grabs gamepad focus
+            handle.transform.SetParent(sb.transform, false);
+            _handle = (RectTransform)handle.transform;
+            _handle.anchorMin = new Vector2(0f, 1f);
+            _handle.anchorMax = new Vector2(1f, 1f);
+            _handle.pivot = new Vector2(0.5f, 1f);
+            _handleImage = handle.AddComponent<Image>();
+            _handleImage.raycastTarget = false;
+            _handleImage.color = scrollbarColor;
             sb.SetActive(false);
-
-            _scroll = vp.AddComponent<ScrollRect>();
-            _scroll.viewport = _viewport;
-            _scroll.content = _list;
-            _scroll.horizontal = false;
-            _scroll.vertical = true;
-            _scroll.movementType = ScrollRect.MovementType.Clamped;
-            _scroll.inertia = false;
-            _scroll.scrollSensitivity = 40f; // about one row per wheel notch
-            _scroll.verticalScrollbar = _scrollbar;
-            _scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
         }
 
         private Row NextRow(RectTransform parent)

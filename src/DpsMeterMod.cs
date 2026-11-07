@@ -204,6 +204,10 @@ namespace DreamDpsMeter
             bool detailShown = IsDetailShown();
             if (_compact != null) _compact.SetActive(true);
             if (_detail != null) _detail.SetActive(!_detailFallback || detailShown);
+            if (detailShown && _detail != null && _detail.alive && ReadMouse(out Vector2 mouse, out float wheel, out bool pressed, out bool held))
+            {
+                _detail.HandlePointer(mouse, wheel, pressed, held);
+            }
 
             if (detailShown != _lastDetailShown || unscaled >= _nextRefresh)
             {
@@ -218,6 +222,47 @@ namespace DreamDpsMeter
                 }
                 if (_detail != null && _detail.alive && detailShown) RenderDetail(now);
                 UpdateSkillLabels();
+            }
+        }
+
+        private bool _legacyMouseFailed;
+
+        /// <summary>Mouse position (screen pixels), wheel in notches and left button, from the Input System (legacy Input as fallback).</summary>
+        private bool ReadMouse(out Vector2 pos, out float wheel, out bool pressed, out bool held)
+        {
+            pos = Vector2.zero;
+            wheel = 0f;
+            pressed = held = false;
+            try
+            {
+                UnityEngine.InputSystem.Mouse m = UnityEngine.InputSystem.Mouse.current;
+                if (m != null)
+                {
+                    pos = m.position.ReadValue();
+                    float raw = m.scroll.ReadValue().y;
+                    wheel = Mathf.Abs(raw) >= 20f ? raw / 120f : raw; // Windows reports 120 per notch on some versions
+                    pressed = m.leftButton.wasPressedThisFrame;
+                    held = m.leftButton.isPressed;
+                    return true;
+                }
+            }
+            catch (Exception)
+            {
+                // Input System unavailable: try the legacy input below
+            }
+            if (_legacyMouseFailed) return false;
+            try
+            {
+                pos = Input.mousePosition;
+                wheel = Input.mouseScrollDelta.y;
+                pressed = Input.GetMouseButtonDown(0);
+                held = Input.GetMouseButton(0);
+                return true;
+            }
+            catch (Exception)
+            {
+                _legacyMouseFailed = true; // legacy input disabled in this build
+                return false;
             }
         }
 
@@ -687,20 +732,53 @@ namespace DreamDpsMeter
             _detail.Render(_specs, _detailWidth);
         }
 
-        /// <summary>Tallest the detail may get before its list scrolls: at most ~11 sources, and never past the top of the screen.</summary>
+        /// <summary>
+        /// Tallest the detail may get before its list scrolls: at most ~11 sources, never past the top of the screen,
+        /// and never over the damage panel (top-left), which gets taller with each player.
+        /// </summary>
         private float DetailMaxHeight()
         {
             const float cap = 560f;
-            const float topMargin = 40f;
+            const float margin = 16f;
             if (_detailFallback) return cap;
-            Canvas canvas = _detail.rect.GetComponentInParent<Canvas>();
-            float scale = _detail.rect.lossyScale.y;
-            if (canvas == null || scale <= 0f) return cap;
-            Vector3[] corners = new Vector3[4];
-            ((RectTransform)canvas.rootCanvas.transform).GetWorldCorners(corners);
-            // The panel grows upward from its bottom pivot (top of the stats window).
-            float room = (corners[1].y - _detail.rect.position.y) / scale - topMargin;
+            RectTransform rt = _detail.rect;
+            Camera cam = CanvasCamera(rt);
+            // Screen pixels per panel unit, and the screen y of the panel's bottom (it grows upward from there).
+            float bottom = RectTransformUtility.WorldToScreenPoint(cam, rt.TransformPoint(Vector3.zero)).y;
+            float perUnit = RectTransformUtility.WorldToScreenPoint(cam, rt.TransformPoint(new Vector3(0f, 100f, 0f))).y - bottom;
+            if (perUnit <= 0f) return cap;
+            perUnit /= 100f;
+
+            float ceiling = Screen.height - 40f * perUnit;
+            if (_compact != null && _compact.alive && !_compactFallback && _compact.rect.gameObject.activeInHierarchy)
+            {
+                // Only when both panels share the same horizontal band.
+                Camera ccam = CanvasCamera(_compact.rect);
+                Vector3[] c = new Vector3[4];
+                _compact.rect.GetWorldCorners(c);
+                float cMinX = float.MaxValue, cMaxX = float.MinValue, cMinY = float.MaxValue;
+                foreach (Vector3 w in c)
+                {
+                    Vector2 s = RectTransformUtility.WorldToScreenPoint(ccam, w);
+                    cMinX = Mathf.Min(cMinX, s.x);
+                    cMaxX = Mathf.Max(cMaxX, s.x);
+                    cMinY = Mathf.Min(cMinY, s.y);
+                }
+                rt.GetWorldCorners(c);
+                float dMinX = RectTransformUtility.WorldToScreenPoint(cam, c[0]).x;
+                float dMaxX = RectTransformUtility.WorldToScreenPoint(cam, c[2]).x;
+                if (dMinX < cMaxX && dMaxX > cMinX) ceiling = Mathf.Min(ceiling, cMinY - margin * perUnit);
+            }
+            float room = (ceiling - bottom) / perUnit;
             return Mathf.Clamp(room, 200f, cap);
+        }
+
+        private static Camera CanvasCamera(Transform t)
+        {
+            Canvas c = t.GetComponentInParent<Canvas>();
+            if (c == null) return null;
+            c = c.rootCanvas;
+            return c.renderMode == RenderMode.ScreenSpaceOverlay ? null : c.worldCamera;
         }
 
         private TextStyle _bodyStyle;
