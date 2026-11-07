@@ -454,40 +454,128 @@ namespace DreamDpsMeter
             return c != null ? c.rootCanvas : null;
         }
 
-        /// <summary>Keep the compact panel at the top-left, just under the party list when it has members.</summary>
+        private readonly List<UnityEngine.UI.Graphic> _hudGraphics = new List<UnityEngine.UI.Graphic>();
+        private readonly List<Vector2> _stack = new List<Vector2>();
+        private readonly Vector3[] _corners = new Vector3[4];
+        private float _nextStackScan;
+        private float _stackBottom = 20f;
+        private float _stackLeft = 40f;
+
+        /// <summary>
+        /// Keep the compact panel at the top-left, under everything the game shows there: party members,
+        /// but also their key hints (Tab / Enter...) that live outside the party items.
+        /// </summary>
         private void PositionCompact()
         {
             if (_compact == null || !_compact.alive || _compactFallback || _hudCanvas == null) return;
             RectTransform canvasRt = (RectTransform)_hudCanvas.transform;
-            float top = 40f;
+            ScanTopLeftStack(canvasRt, _compactWidth);
+            float top = _stackBottom + 24f;
+            float left = _stackLeft;
+
+            Vector2 size = _compact.rect.sizeDelta;
+            Vector2 pos = new Vector2(left + size.x * 0.5f, -(top + size.y * 0.5f)); // centre pivot
+            // The tilt and the frame ornaments reach past the rect: measure what is drawn and push it back inside.
+            _compact.rect.anchoredPosition = pos;
+            if (DrawnBounds(_compact.rect, canvasRt, out Rect drawn))
+            {
+                float allowedTop = canvasRt.rect.yMax - top;
+                if (drawn.yMax > allowedTop) pos.y -= drawn.yMax - allowedTop;
+                float allowedLeft = canvasRt.rect.xMin + Mathf.Min(left, 20f);
+                if (drawn.xMin < allowedLeft) pos.x += allowedLeft - drawn.xMin;
+            }
+            if ((_compact.rect.anchoredPosition - pos).sqrMagnitude > 0.01f) _compact.rect.anchoredPosition = pos;
+        }
+
+        /// <summary>
+        /// Bottom of the block of HUD elements stacked from the top of the screen in the panel's column
+        /// (distance from the canvas top), measured on what is actually drawn.
+        /// </summary>
+        private void ScanTopLeftStack(RectTransform canvasRt, float width)
+        {
+            float t = Time.unscaledTime;
+            if (t < _nextStackScan) return;
+            _nextStackScan = t + 0.5f;
+            if (_party == null) _party = UnityEngine.Object.FindObjectOfType<UI_InGame_PartyDisplay>();
+
+            Rect cr = canvasRt.rect;
             float left = 40f;
             if (_party != null && _party.itemParent != null)
             {
-                bool hasItems = false;
-                float minY = float.MaxValue;
+                // Align with the party members' left edge when there are some.
                 float minX = float.MaxValue;
-                Vector3[] corners = new Vector3[4];
                 foreach (Transform child in _party.itemParent)
                 {
-                    if (!child.gameObject.activeInHierarchy || !(child is RectTransform crt)) continue;
-                    crt.GetWorldCorners(corners);
-                    for (int i = 0; i < 4; i++)
-                    {
-                        Vector3 local = canvasRt.InverseTransformPoint(corners[i]);
-                        minY = Mathf.Min(minY, local.y);
-                        minX = Mathf.Min(minX, local.x);
-                    }
-                    hasItems = true;
+                    if (child.gameObject.activeInHierarchy && child is RectTransform crt && BoundsIn(crt, canvasRt, out Rect pb)) minX = Mathf.Min(minX, pb.xMin);
                 }
-                if (hasItems)
-                {
-                    top = canvasRt.rect.yMax - minY + 24f;
-                    left = Mathf.Max(20f, minX - canvasRt.rect.xMin);
-                }
+                if (minX < float.MaxValue) left = Mathf.Max(20f, minX - cr.xMin);
             }
-            Vector2 size = _compact.rect.sizeDelta;
-            Vector2 pos = new Vector2(left + size.x * 0.5f, -(top + size.y * 0.5f)); // centre pivot
-            if ((_compact.rect.anchoredPosition - pos).sqrMagnitude > 0.25f) _compact.rect.anchoredPosition = pos;
+            _hudCanvas.GetComponentsInChildren(false, _hudGraphics);
+            _stack.Clear();
+            foreach (UnityEngine.UI.Graphic g in _hudGraphics)
+            {
+                if (!IsDrawn(g) || g.transform.IsChildOf(_compact.rect)) continue;
+                if (_detail != null && _detail.alive && g.transform.IsChildOf(_detail.rect)) continue;
+                if (!BoundsIn(g.rectTransform, canvasRt, out Rect b)) continue;
+                if (b.width < 2f || b.height < 2f || b.width > cr.width * 0.5f || b.height > cr.height * 0.35f) continue;
+                if (b.xMax < cr.xMin + left || b.xMin > cr.xMin + left + width) continue; // not in our column
+                float top = cr.yMax - b.yMax;
+                if (top > cr.height * 0.5f) continue;
+                _stack.Add(new Vector2(top, cr.yMax - b.yMin));
+            }
+            _hudGraphics.Clear();
+            _stack.Sort((a, b) => a.x.CompareTo(b.x));
+            float bottom = 20f;
+            foreach (Vector2 e in _stack)
+            {
+                if (e.x > bottom + 48f) break; // a gap: the rest is not stacked under the top of the screen
+                bottom = Mathf.Max(bottom, e.y);
+            }
+            _stackBottom = bottom;
+            _stackLeft = left;
+        }
+
+        private static bool IsDrawn(UnityEngine.UI.Graphic g)
+        {
+            if (g == null || !g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull) return false;
+            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < 0.05f) return false; // includes CanvasGroup fades
+            if (g is TMPro.TMP_Text txt && string.IsNullOrEmpty(txt.text)) return false;
+            return true;
+        }
+
+        private bool BoundsIn(RectTransform rt, RectTransform space, out Rect bounds)
+        {
+            rt.GetWorldCorners(_corners);
+            float xMin = float.MaxValue, yMin = float.MaxValue, xMax = float.MinValue, yMax = float.MinValue;
+            for (int i = 0; i < 4; i++)
+            {
+                Vector3 p = space.InverseTransformPoint(_corners[i]);
+                xMin = Mathf.Min(xMin, p.x);
+                xMax = Mathf.Max(xMax, p.x);
+                yMin = Mathf.Min(yMin, p.y);
+                yMax = Mathf.Max(yMax, p.y);
+            }
+            bounds = Rect.MinMaxRect(xMin, yMin, xMax, yMax);
+            return !float.IsNaN(xMin) && !float.IsInfinity(xMin);
+        }
+
+        /// <summary>Area covered by the visible graphics of a panel (soft shadows excluded).</summary>
+        private bool DrawnBounds(RectTransform root, RectTransform space, out Rect bounds)
+        {
+            bounds = default;
+            bool any = false;
+            root.GetComponentsInChildren(false, _hudGraphics);
+            foreach (UnityEngine.UI.Graphic g in _hudGraphics)
+            {
+                if (!IsDrawn(g) || g.name.IndexOf("Shadow", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                if (g.transform.parent != null && g.transform.parent.name.IndexOf("Shadow", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                if (!BoundsIn(g.rectTransform, space, out Rect b)) continue;
+                bounds = any ? Rect.MinMaxRect(Mathf.Min(bounds.xMin, b.xMin), Mathf.Min(bounds.yMin, b.yMin),
+                                               Mathf.Max(bounds.xMax, b.xMax), Mathf.Max(bounds.yMax, b.yMax)) : b;
+                any = true;
+            }
+            _hudGraphics.Clear();
+            return any;
         }
 
         private static Sprite FindSprite(Transform root, string path)
