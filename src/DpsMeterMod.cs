@@ -25,6 +25,9 @@ namespace DreamDpsMeter
         [Header("Affichage")]
         [ModConfig.LabelText("Inclinaison du panneau (0 = droit, 1 = comme l'Objectif)")]
         public float tiltStrength = 0.5f;
+
+        [ModConfig.LabelText("Sources visibles dans le détail (Ctrl) avant de défiler")]
+        public int detailMaxRows = 7;
     }
 
     public class DpsMeterMod : ModBehaviour
@@ -826,7 +829,9 @@ namespace DreamDpsMeter
         /// </summary>
         private float DetailMaxHeight()
         {
-            const float cap = 560f;
+            // Header (46 + gap) and N source rows (40 + gap), plus the panel padding.
+            int rows = Mathf.Clamp(config.detailMaxRows, 3, 30);
+            float cap = _detail.padding.z + 48f + rows * 42f - 2f + _detail.padding.w;
             const float margin = 16f;
             if (_detailFallback) return cap;
             RectTransform rt = _detail.rect;

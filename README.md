@@ -43,6 +43,7 @@ la télécharge et te prévient ; elle s'applique au lancement suivant. (Désact
 ## Options
 
 Dans le gestionnaire de mods du jeu : durée avant fin de combat, overkill compté ou non, inclinaison du panneau,
+nombre de sources visibles dans le détail avant de défiler (7 par défaut),
 mises à jour automatiques.
 
 Commandes console (mode développeur) : `dps_reset`, `dps_rebuild`, `dps_mock` (données de test).
