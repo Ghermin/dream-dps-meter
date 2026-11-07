@@ -654,6 +654,8 @@ namespace DreamDpsMeter
                 if (source != null) s.actor = source;
                 return s;
             }
+            s = TakeOverReplaced(ps, source, key);
+            if (s != null) return s;
             s = new SourceStats
             {
                 key = key,
@@ -665,6 +667,49 @@ namespace DreamDpsMeter
             };
             ps.sources[key] = s;
             return s;
+        }
+
+        /// <summary>
+        /// A memory / essence replaced by another copy of itself (e.g. the old one destroyed for its upgraded
+        /// version) is a new game object: carry the old line over instead of starting again from 0.
+        /// Only takes a line whose memory / essence is gone or no longer equipped, so two copies equipped at
+        /// the same time still get one line each.
+        /// </summary>
+        private static SourceStats TakeOverReplaced(PlayerStats ps, Actor source, string key)
+        {
+            if (!(source is Gem) && !(source is SkillTrigger)) return null;
+            string prefix = source.GetType().Name + "#";
+            Hero hero = null;
+            try
+            {
+                hero = ps.player != null ? ps.player.hero : null;
+            }
+            catch
+            {
+                // no hero: compare with "destroyed" only
+            }
+            SourceStats replaced = null;
+            foreach (KeyValuePair<string, SourceStats> kv in ps.sources)
+            {
+                if (!kv.Key.StartsWith(prefix, StringComparison.Ordinal)) continue;
+                SourceStats old = kv.Value;
+                bool stillInUse = old.actor != null && old.actor != source && (hero == null || IsListed(old, hero));
+                if (stillInUse) continue;
+                replaced = old;
+                break;
+            }
+            if (replaced == null) return null;
+
+            ps.sources.Remove(replaced.key);
+            replaced.key = key;
+            replaced.actor = source;
+            replaced.label = GetLabel(source);          // the upgraded version may have another name / icon
+            Sprite icon = GetIcon(source);
+            if (icon != null) replaced.icon = icon;
+            HeroSkillLocation? slot = GetSlot(source);
+            if (slot.HasValue) replaced.slot = slot;
+            ps.sources[key] = replaced;
+            return replaced;
         }
 
         /// <summary>
