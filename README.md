@@ -19,19 +19,19 @@ Un DPS meter intégré au HUD du jeu, avec le même style que l'interface d'orig
 Le script trouve le jeu dans tes bibliothèques Steam et installe le mod dans `Shape of Dreams\Mods\DreamDpsMeter`.
 
 **Mises à jour : rien à faire.** Au lancement du jeu, le mod vérifie s'il existe une nouvelle version sur ce dépôt,
-la télécharge et te prévient ; elle s'applique au lancement suivant. (Désactivable dans les options du mod.)
+la télécharge et l'applique tout de suite sur l'écran titre (sinon au retour au menu principal), sans redémarrer.
 
 ## Ce qu'il affiche
 
-**Pendant la run — en haut à gauche** (même cadre que les objectifs) :
+**Pendant la run — au-dessus des caractéristiques** (même cadre que la fenêtre de stats ; à sa place si elle est masquée) :
 - dégâts totaux de la run, DPS du combat (ou DPS sur le boss pendant un combat de boss), soins, dégâts subis ;
 - or et Poussière de Rêve gagnés, répartition des dégâts par élément (barre colorée) ;
 - en multi : classement des joueurs par dégâts (une ligne de résumé par joueur).
 
-**Touche Ctrl — au-dessus des caractéristiques** :
+**Touche Ctrl — le même panneau passe au détail** (jamais deux panneaux l'un sur l'autre) :
 - le détail de tes dégâts par mémoire, essence, passif, élément (brûlure, givre…) et attaque de base, avec icônes ;
 - soins et boucliers apportés par chaque source (non comptés dans le DPS) ;
-- une barre de défilement apparaît quand il y a trop de sources pour l'espace disponible (molette ou glisser).
+- 7 sources visibles, au-delà la liste défile ligne par ligne (molette sur la liste, ou glisser la barre).
 
 **Barre de compétences** : un petit % au-dessus de chaque mémoire et sous chaque essence (part de tes dégâts).
 
@@ -42,9 +42,8 @@ la télécharge et te prévient ; elle s'applique au lancement suivant. (Désact
 
 ## Options
 
-Dans le gestionnaire de mods du jeu : durée avant fin de combat, overkill compté ou non, inclinaison du panneau,
-nombre de sources visibles dans le détail avant de défiler (7 par défaut),
-mises à jour automatiques.
+Aucune : tout est réglé une fois pour toutes (fin de combat après 5 s sans dégâts, overkill compté,
+7 sources visibles dans le détail, mises à jour automatiques).
 
 Commandes console (mode développeur) : `dps_reset`, `dps_rebuild`, `dps_mock` (données de test).
 

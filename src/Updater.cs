@@ -22,8 +22,6 @@ namespace DreamDpsMeter
         private void Start()
         {
             AnnounceIfJustUpdated();
-            DpsMeterMod meter = GetComponent<DpsMeterMod>();
-            if (meter != null && !meter.config.autoUpdate) return;
             StartCoroutine(CheckForUpdate());
         }
 

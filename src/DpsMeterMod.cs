@@ -7,35 +7,16 @@ using UnityEngine;
 
 namespace DreamDpsMeter
 {
-    public class DpsMeterConfig : ModConfig
-    {
-        [ModConfig.LabelText("Afficher le DPS meter")]
-        public bool enabled = true;
-
-        [Header("Calcul")]
-        [ModConfig.LabelText("Fin de combat après X s sans dégâts")]
-        public float combatTimeout = 5f;
-
-        [ModConfig.LabelText("Compter l'overkill")]
-        public bool includeOverkill = false;
-
-        [ModConfig.LabelText("Mises à jour automatiques (GitHub)")]
-        public bool autoUpdate = true;
-
-        [Header("Affichage")]
-        [ModConfig.LabelText("Inclinaison du panneau (0 = droit, 1 = comme l'Objectif)")]
-        public float tiltStrength = 0.5f;
-
-        [ModConfig.LabelText("Sources visibles dans le détail (Ctrl) avant de défiler")]
-        public int detailMaxRows = 7;
-    }
-
     public class DpsMeterMod : ModBehaviour
     {
         private const float RefreshInterval = 0.2f;
         private const float AttachInterval = 0.5f;
-        private const string CompactName = "DreamDpsMeter Compact";
-        private const string DetailName = "DreamDpsMeter Detail";
+        private const string PanelName = "DreamDpsMeter Panel";
+
+        // Fixed settings (no options in the mod manager).
+        private const float CombatTimeout = 5f;   // a fight ends after 5 s without damage
+        private const bool IncludeOverkill = true; // damage past the enemy's remaining health counts too
+        private const int DetailMaxRows = 7;       // sources shown in the detail before it scrolls
 
         private static readonly Color[] PlayerColors =
         {
@@ -57,8 +38,6 @@ namespace DreamDpsMeter
             { SourceCategory.Other, new Color32(0xA0, 0xA0, 0xA0, 0xFF) }
         };
 
-        public DpsMeterConfig config = new DpsMeterConfig();
-
         private readonly DamageTracker _tracker = new DamageTracker();
         private readonly List<RowSpec> _specs = new List<RowSpec>();
         private Action<EventInfoDamage> _onDamage;
@@ -66,13 +45,11 @@ namespace DreamDpsMeter
         private Action<EventInfoShield> _onShield;
         private readonly SkillBarLabels _skillLabels = new SkillBarLabels();
 
-        private MeterPanel _compact;
+        // One panel next to the stats window: the summary normally, the detail while the key is held.
         private MeterPanel _detail;
-        private bool _compactFallback;
         private bool _detailFallback;
         private UI_InGame_HeroDetailWindow _window;
         private Color _titleColor = new Color32(0x7F, 0xD8, 0xF5, 0xFF);
-        private float _compactWidth = 300f;
         private float _detailWidth = 340f;
         private float _nextAttach;
         private float _nextRefresh;
@@ -85,7 +62,8 @@ namespace DreamDpsMeter
             _onDamage = OnDamage;
             _onHeal = OnHeal;
             _onShield = OnShield;
-            ApplyConfigToTracker();
+            _tracker.combatTimeout = CombatTimeout;
+            _tracker.includeOverkill = IncludeOverkill;
 
             // Called every time a ClientEventManager starts (each new game), cleanup when it goes away.
             CallOnNetworkedManager<ClientEventManager>(manager =>
@@ -118,20 +96,6 @@ namespace DreamDpsMeter
             _tracker.ResetAll(); // also unsubscribes gold / dream dust listeners
             _skillLabels.Clear();
             DestroyPanels();
-        }
-
-        public override void OnConfigChanged()
-        {
-            base.OnConfigChanged();
-            ApplyConfigToTracker();
-            ApplyTilt();
-            _nextRefresh = 0f;
-        }
-
-        private void ApplyConfigToTracker()
-        {
-            _tracker.combatTimeout = Mathf.Max(0.5f, config.combatTimeout);
-            _tracker.includeOverkill = config.includeOverkill;
         }
 
         private void OnShield(EventInfoShield info)
@@ -179,7 +143,7 @@ namespace DreamDpsMeter
             if (endUi != null && (endUi.isDoingEnding || endUi.IsState("Result"))) _tracker.Freeze();
             if (IsResultScreen())
             {
-                if (_compact != null) _compact.SetActive(false);
+                if (_detail != null) _detail.SetActive(false);
                 UpdateRecap();
                 return;
             }
@@ -187,8 +151,7 @@ namespace DreamDpsMeter
             if (!inGame)
             {
                 _playingSince = -1f;
-                if (_compact != null) _compact.SetActive(false);
-                if (_detail != null && _detailFallback) _detail.SetActive(false);
+                if (_detail != null) _detail.SetActive(false);
                 return;
             }
             float unscaled = Time.unscaledTime;
@@ -204,28 +167,84 @@ namespace DreamDpsMeter
             float now = Time.time;
             _tracker.Tick(now);
 
-            bool detailShown = IsDetailShown();
-            if (_compact != null) _compact.SetActive(true);
-            if (_detail != null) _detail.SetActive(!_detailFallback || detailShown);
-            if (detailShown && _detail != null && _detail.alive && ReadMouse(out Vector2 mouse, out float wheel, out bool pressed, out bool held))
+            // One panel, two contents: the summary, or the detail while the detail key (Ctrl) is held.
+            bool detailShown = IsDetailKeyHeld();
+            bool alive = _detail != null && _detail.alive;
+            if (alive)
+            {
+                _detail.SetActive(true);
+                FollowStatsWindow();
+            }
+            if (detailShown && alive && ReadMouse(out Vector2 mouse, out float wheel, out bool pressed, out bool held))
             {
                 _detail.HandlePointer(mouse, wheel, pressed, held);
             }
 
             if (detailShown != _lastDetailShown || unscaled >= _nextRefresh)
             {
-                if (detailShown && !_lastDetailShown && _detail != null && _detail.alive) _detail.ScrollToTop();
+                if (detailShown && !_lastDetailShown && alive) _detail.ScrollToTop();
                 _lastDetailShown = detailShown;
                 _nextRefresh = unscaled + RefreshInterval;
                 _tracker.SyncPlayers();
-                if (_compact != null && _compact.alive)
+                if (alive)
                 {
-                    RenderCompact(now);
-                    PositionCompact();
+                    if (detailShown) RenderDetail(now);
+                    else RenderSummary(now);
+                    FollowStatsWindow(); // the height may have changed
                 }
-                if (_detail != null && _detail.alive && detailShown) RenderDetail(now);
                 UpdateSkillLabels();
             }
+        }
+
+        private static readonly System.Reflection.FieldInfo WindowOriginalPos =
+            typeof(UI_InGame_HeroDetailWindow).GetField("_originalPos", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        /// <summary>
+        /// The panel is a sibling of the stats window (not a child: the game hides the window by fading and sliding it
+        /// unless "always show" is on). It copies the window's tilt and sits right above it while the window is on
+        /// screen, or in its place while it is hidden, so the two never overlap.
+        /// </summary>
+        private void FollowStatsWindow()
+        {
+            if (_detailFallback || _window == null || _detail == null || !_detail.alive) return;
+            RectTransform w = (RectTransform)_window.transform;
+            RectTransform p = _detail.rect;
+            if (p.parent != w.parent) p.SetParent(w.parent, false);
+
+            // Where the window stands when shown (it slides by hideOffset when hidden).
+            Vector3 local = w.localPosition;
+            bool shown = _window.isShown;
+            Vector3 origin = local;
+            try
+            {
+                Vector3 hide = _window.hideOffset;
+                if (WindowOriginalPos != null)
+                {
+                    // The game keeps it either as a local or as an anchored position: take the reading that matches
+                    // where the window is now (at its place when shown, hideOffset away when hidden).
+                    Vector3 o = (Vector3)WindowOriginalPos.GetValue(_window);
+                    Vector3 asLocal = o;
+                    Vector3 fromAnchored = o + (local - w.anchoredPosition3D);
+                    float dLocal = Mathf.Min((asLocal - local).sqrMagnitude, (asLocal + hide - local).sqrMagnitude);
+                    float dAnchored = Mathf.Min((fromAnchored - local).sqrMagnitude, (fromAnchored + hide - local).sqrMagnitude);
+                    origin = dLocal <= dAnchored ? asLocal : fromAnchored;
+                }
+                else if (!shown)
+                {
+                    origin = local - hide;
+                }
+            }
+            catch (Exception)
+            {
+                origin = local;
+            }
+
+            Rect r = w.rect;
+            // Above the window (its shadow overflows ~18 units) while shown, in its place while hidden.
+            Vector3 corner = new Vector3(r.xMin, shown ? r.yMax + 18f : r.yMin, 0f);
+            p.localRotation = w.localRotation;
+            p.localScale = w.localScale;
+            p.localPosition = origin + w.localRotation * Vector3.Scale(w.localScale, corner);
         }
 
         private bool _legacyMouseFailed;
@@ -271,7 +290,6 @@ namespace DreamDpsMeter
 
         private bool IsPlaying()
         {
-            if (!config.enabled) return false;
             if (NetworkedManagerBase<ClientEventManager>.softInstance == null) return false;
             InGameUIManager ui = InGameUIManager.softInstance;
             if (ui == null || !ui.IsState("Playing")) return false;
@@ -279,18 +297,32 @@ namespace DreamDpsMeter
             return !ui.isDoingEnding;
         }
 
-        private bool IsDetailShown()
+        /// <summary>
+        /// Detail key held (Ctrl by default: "show details" / skill editing). Read from the keys, not from the stats
+        /// window, which may be set to always show.
+        /// </summary>
+        private static string _lastKeyLog;
+
+        private static bool IsDetailKeyHeld()
         {
-            if (_window != null && !_detailFallback) return _window.isShown;
             try
             {
-                if (DewSave.profileMain != null &&
-                    DewInput.GetButton(DewSave.profileMain.controls.editSkillHold, checkGameAreaForMouse: false))
+                bool details = false, editHold = false;
+                if (DewSave.profileMain != null)
                 {
-                    return true;
+                    var controls = DewSave.profileMain.controls;
+                    details = DewInput.GetButton(controls.showDetails, checkGameAreaForMouse: false);
+                    editHold = DewInput.GetButton(controls.editSkillHold, checkGameAreaForMouse: false);
                 }
                 EditSkillManager esm = ManagerBase<EditSkillManager>.softInstance;
-                return esm != null && esm.mode != EditSkillManager.ModeType.None;
+                string mode = esm != null ? esm.mode.ToString() : "none";
+                string state = "details=" + details + " editHold=" + editHold + " editMode=" + mode;
+                if (state != _lastKeyLog)
+                {
+                    _lastKeyLog = state;
+                    Debug.Log("[DreamDpsMeter] key " + state);
+                }
+                return details || editHold || (esm != null && esm.mode != EditSkillManager.ModeType.None);
             }
             catch
             {
@@ -298,31 +330,27 @@ namespace DreamDpsMeter
             }
         }
 
-        /// <summary>Attach the panels to the game's HUD (objective list, stats window); fall back to our own canvas.</summary>
+        /// <summary>Attach the panel next to the game's stats window; fall back to our own canvas.</summary>
         private void EnsurePanels(float secondsInGame)
         {
-            UI_InGame_QuestDisplay quests = null;
+            bool needPanel = _detail == null || !_detail.alive || _detailFallback || _window == null;
+            if (!needPanel && !_dumpRequested) return;
+
+            UI_InGame_QuestDisplay quests = UnityEngine.Object.FindObjectOfType<UI_InGame_QuestDisplay>();
             UI_InGame_QuestDisplay_Item questItem = null;
-
-            bool needCompact = _compact == null || !_compact.alive || (_compactFallback && secondsInGame < 30f);
-            bool needDetail = _detail == null || !_detail.alive || _detailFallback || _window == null;
-
-            if (needCompact || needDetail)
+            if (quests != null && quests.itemParent != null)
             {
-                quests = UnityEngine.Object.FindObjectOfType<UI_InGame_QuestDisplay>();
-                if (quests != null && quests.itemParent != null)
+                foreach (UI_InGame_QuestDisplay_Item it in quests.itemParent.GetComponentsInChildren<UI_InGame_QuestDisplay_Item>(false))
                 {
-                    foreach (UI_InGame_QuestDisplay_Item it in quests.itemParent.GetComponentsInChildren<UI_InGame_QuestDisplay_Item>(false))
-                    {
-                        questItem = it;
-                        break;
-                    }
+                    questItem = it;
+                    break;
                 }
-                if (questItem != null)
-                {
-                    _titleColor = questItem.goalTitleColor;
-                    _titleColor.a = 1f;
-                }
+            }
+            if (questItem != null)
+            {
+                _titleColor = questItem.goalTitleColor; // header color of the objectives
+                _titleColor.a = 1f;
+                if (_bodyStyle == null) _bodyStyle = TextStyle.From(questItem.descText, null);
             }
 
             UI_InGame_HeroDetailWindow window = ManagerBase<UI_InGame_HeroDetailWindow>.softInstance;
@@ -332,261 +360,49 @@ namespace DreamDpsMeter
                 _dumpRequested = false;
                 WriteDump(quests, questItem, window);
             }
+            if (!needPanel) return;
 
-            if (needCompact)
+            if (window != null)
             {
-                Canvas hud = FindHudCanvas(questItem);
-                if (questItem != null && hud != null)
-                {
-                    if (_compact != null) _compact.Destroy();
-                    TextStyle body = TextStyle.From(questItem.descText, null);
-                    TextStyle head = TextStyle.From(questItem.titleText, body);
-                    _bodyStyle = body;
-                    Transform skin = questItem.transform.Find("Animation Target");
-                    // Top-left of the HUD canvas (below the party list), objective-box look.
-                    _compact = MeterPanel.Create(CompactName, hud.transform, false, skin, QuestSkinParts, head, body);
-                    _compact.padding = new Vector4(27f, 24f, 4f, 16f);
-                    _compact.rowGap = 2f;
-                    _compact.layout.ignoreLayout = true;
-                    RectTransform rt = _compact.rect;
-                    rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
-                    rt.pivot = new Vector2(0.5f, 0.5f); // tilt around the centre, like the objective boxes
-                    rt.SetAsFirstSibling(); // behind menus / tooltips of the same canvas
-                    MirrorObjectiveTilt(rt, questItem.transform, hud);
-                    _hudCanvas = hud;
-                    _compactWidth = 640f;
-                    _headerIcon = FindSprite(questItem.transform, "Animation Target/Name Group/Curse Object/Image")
-                                  ?? FindSprite(questItem.transform, "Animation Target/Name Group/Goal Object/Image");
-                    _compactFallback = false;
-                    _nextRefresh = 0f;
-                }
-                else if ((_compact == null || !_compact.alive) && secondsInGame > 3f)
-                {
-                    _compact = MeterPanel.Create(CompactName, transform, true, null, null, null, null);
-                    PlaceFallback(_compact.rect, new Vector2(0f, 1f), new Vector2(20f, -20f));
-                    _compact.rect.localScale = new Vector3(0.55f, 0.55f, 1f);
-                    _compactFallback = true;
-                    _compactWidth = 650f;
-                    _nextRefresh = 0f;
-                }
+                if (_detail != null) _detail.Destroy();
+                TextStyle body = TextStyle.From(window.healthText, null);
+                Transform iconText = window.transform.Find("AD/Icon Text");
+                TMPro.TMP_Text iconTmp = iconText != null ? iconText.GetComponent<TMPro.TMP_Text>() : null;
+                TMPro.TMP_SpriteAsset icons = iconTmp != null && iconTmp.spriteAsset != null ? iconTmp.spriteAsset : TMPro.TMP_Settings.defaultSpriteAsset;
+                if (icons != null) body.spriteAsset = icons; // inline heart / shield
+                _swordIcon = SpriteFromAsset(icons, 2); // the AD sword of the stats window
+                ResultScreen.swordIcon = _swordIcon;
+                _statsStyle = body;
+                if (_bodyStyle == null) _bodyStyle = body;
+                // Sibling of the window, same frame; FollowStatsWindow() places it every frame.
+                _detail = MeterPanel.Create(PanelName, window.transform.parent, false, window.transform, WindowSkinParts, body, body);
+                _detail.padding = new Vector4(20f, 20f, 14f, 16f);
+                _detail.rowGap = 2f;
+                _detail.layout.ignoreLayout = true;
+                RectTransform rt = _detail.rect;
+                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.pivot = new Vector2(0f, 0f);
+                rt.SetSiblingIndex(window.transform.GetSiblingIndex() + 1); // just above the window, below later UI
+                _detailWidth = Mathf.Max(423f, ((RectTransform)window.transform).rect.width);
+                _window = window;
+                _detailFallback = false;
+                _nextRefresh = 0f;
+                FollowStatsWindow();
             }
-
-            if (needDetail)
+            else if ((_detail == null || !_detail.alive) && secondsInGame > 3f)
             {
-                if (window != null)
-                {
-                    if (_detail != null) _detail.Destroy();
-                    TextStyle body = TextStyle.From(window.healthText, null);
-                    Transform iconText = window.transform.Find("AD/Icon Text");
-                    TMPro.TMP_Text iconTmp = iconText != null ? iconText.GetComponent<TMPro.TMP_Text>() : null;
-                    TMPro.TMP_SpriteAsset icons = iconTmp != null && iconTmp.spriteAsset != null ? iconTmp.spriteAsset : TMPro.TMP_Settings.defaultSpriteAsset;
-                    if (icons != null) body.spriteAsset = icons; // inline heart / shield
-                    _swordIcon = SpriteFromAsset(icons, 2); // the AD sword of the stats window
-                    ResultScreen.swordIcon = _swordIcon;
-                    _statsStyle = body;
-                    _detail = MeterPanel.Create(DetailName, window.transform, false, window.transform, WindowSkinParts, body, body);
-                    _detail.padding = new Vector4(20f, 20f, 14f, 16f);
-                    _detail.rowGap = 2f;
-                    _detail.layout.ignoreLayout = true;
-                    RectTransform rt = _detail.rect;
-                    rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
-                    rt.pivot = new Vector2(0f, 0f);
-                    rt.anchoredPosition = new Vector2(0f, 18f); // the window shadow overflows ~40px
-                    _detailWidth = Mathf.Max(423f, ((RectTransform)window.transform).rect.width);
-                    _window = window;
-                    _detailFallback = false;
-                    _nextRefresh = 0f;
-                }
-                else if (_detail == null || !_detail.alive)
-                {
-                    _detail = MeterPanel.Create(DetailName, transform, true, null, null, null, null);
-                    PlaceFallback(_detail.rect, new Vector2(0f, 0f), new Vector2(40f, 380f));
-                    _detail.rect.localScale = new Vector3(0.55f, 0.55f, 1f);
-                    _detailFallback = true;
-                    _detailWidth = 423f;
-                }
+                _detail = MeterPanel.Create(PanelName, transform, true, null, null, null, null);
+                PlaceFallback(_detail.rect, new Vector2(0f, 0f), new Vector2(40f, 380f));
+                _detail.rect.localScale = new Vector3(0.55f, 0.55f, 1f);
+                _detailFallback = true;
+                _detailWidth = 423f;
+                _nextRefresh = 0f;
             }
         }
 
-        private static readonly string[] QuestSkinParts = { "Left Header Shadow", "Left Header", "Middle to Right Header" };
         private static readonly string[] WindowSkinParts = { "Shadow", "Background", "Window Deco - Top Half" };
-        private static readonly Color HeaderIconColor = new Color32(0x87, 0xDD, 0xF1, 0xFF);
         private static readonly Color ValueColor = new Color32(0xD5, 0xF8, 0xFF, 0xFF);   // objective name text
         private static readonly Color StatTextColor = new Color32(0xBF, 0xD3, 0xD9, 0xFF); // stats window values
-        private Sprite _headerIcon;
-        private Canvas _hudCanvas;
-        private UI_InGame_PartyDisplay _party;
-
-        /// <summary>
-        /// The objective boxes (top-right) are tilted in the HUD prefab; give our top-left panel the mirrored
-        /// tilt and flip its frame so both sides look symmetric.
-        /// </summary>
-        private void MirrorObjectiveTilt(RectTransform panel, Transform objectiveBox, Canvas hud)
-        {
-            if (objectiveBox == null || hud == null) return;
-            Quaternion rel = Quaternion.Inverse(hud.transform.rotation) * objectiveBox.rotation;
-            Vector3 e = rel.eulerAngles;
-            float x = Mathf.DeltaAngle(0f, e.x), y = Mathf.DeltaAngle(0f, e.y), z = Mathf.DeltaAngle(0f, e.z);
-            _objectiveTilt = new Vector3(x, y, z);
-            ApplyTilt();
-            if (_compact != null && _compact.skin != null)
-            {
-                Vector3 sc = _compact.skin.localScale;
-                _compact.skin.localScale = new Vector3(-Mathf.Abs(sc.x), sc.y, sc.z); // ornament on the inner (right) side
-            }
-            Debug.Log(string.Format(CultureInfo.InvariantCulture, "[DreamDpsMeter] Objective tilt ({0:0.##}, {1:0.##}, {2:0.##}) mirrored on the damage panel", x, y, z));
-        }
-
-        private Vector3 _objectiveTilt;
-
-        /// <summary>Mirrored objective tilt, scaled by the "tilt strength" setting.</summary>
-        private void ApplyTilt()
-        {
-            if (_compact == null || !_compact.alive || _compactFallback) return;
-            float k = Mathf.Clamp(config.tiltStrength, 0f, 1.5f);
-            _compact.rect.localRotation = Quaternion.Euler(_objectiveTilt.x * k, -_objectiveTilt.y * k, -_objectiveTilt.z * k);
-        }
-
-        /// <summary>The root HUD canvas (the one holding the party list and the objectives).</summary>
-        private Canvas FindHudCanvas(UI_InGame_QuestDisplay_Item questItem)
-        {
-            if (_party == null) _party = UnityEngine.Object.FindObjectOfType<UI_InGame_PartyDisplay>();
-            Canvas c = null;
-            if (_party != null) c = _party.GetComponentInParent<Canvas>();
-            if (c == null && questItem != null) c = questItem.GetComponentInParent<Canvas>();
-            return c != null ? c.rootCanvas : null;
-        }
-
-        private readonly List<UnityEngine.UI.Graphic> _hudGraphics = new List<UnityEngine.UI.Graphic>();
-        private readonly List<Vector2> _stack = new List<Vector2>();
-        private readonly Vector3[] _corners = new Vector3[4];
-        private float _nextStackScan;
-        private float _stackBottom = 20f;
-        private float _stackLeft = 40f;
-
-        /// <summary>
-        /// Keep the compact panel at the top-left, under everything the game shows there: party members,
-        /// but also their key hints (Tab / Enter...) that live outside the party items.
-        /// </summary>
-        private void PositionCompact()
-        {
-            if (_compact == null || !_compact.alive || _compactFallback || _hudCanvas == null) return;
-            RectTransform canvasRt = (RectTransform)_hudCanvas.transform;
-            ScanTopLeftStack(canvasRt, _compactWidth);
-            float top = _stackBottom + 24f;
-            float left = _stackLeft;
-
-            Vector2 size = _compact.rect.sizeDelta;
-            Vector2 pos = new Vector2(left + size.x * 0.5f, -(top + size.y * 0.5f)); // centre pivot
-            // The tilt and the frame ornaments reach past the rect: measure what is drawn and push it back inside.
-            _compact.rect.anchoredPosition = pos;
-            if (DrawnBounds(_compact.rect, canvasRt, out Rect drawn))
-            {
-                float allowedTop = canvasRt.rect.yMax - top;
-                if (drawn.yMax > allowedTop) pos.y -= drawn.yMax - allowedTop;
-                float allowedLeft = canvasRt.rect.xMin + Mathf.Min(left, 20f);
-                if (drawn.xMin < allowedLeft) pos.x += allowedLeft - drawn.xMin;
-            }
-            if ((_compact.rect.anchoredPosition - pos).sqrMagnitude > 0.01f) _compact.rect.anchoredPosition = pos;
-        }
-
-        /// <summary>
-        /// Bottom of the block of HUD elements stacked from the top of the screen in the panel's column
-        /// (distance from the canvas top), measured on what is actually drawn.
-        /// </summary>
-        private void ScanTopLeftStack(RectTransform canvasRt, float width)
-        {
-            float t = Time.unscaledTime;
-            if (t < _nextStackScan) return;
-            _nextStackScan = t + 0.5f;
-            if (_party == null) _party = UnityEngine.Object.FindObjectOfType<UI_InGame_PartyDisplay>();
-
-            Rect cr = canvasRt.rect;
-            float left = 40f;
-            if (_party != null && _party.itemParent != null)
-            {
-                // Align with the party members' left edge when there are some.
-                float minX = float.MaxValue;
-                foreach (Transform child in _party.itemParent)
-                {
-                    if (child.gameObject.activeInHierarchy && child is RectTransform crt && BoundsIn(crt, canvasRt, out Rect pb)) minX = Mathf.Min(minX, pb.xMin);
-                }
-                if (minX < float.MaxValue) left = Mathf.Max(20f, minX - cr.xMin);
-            }
-            _hudCanvas.GetComponentsInChildren(false, _hudGraphics);
-            _stack.Clear();
-            foreach (UnityEngine.UI.Graphic g in _hudGraphics)
-            {
-                if (!IsDrawn(g) || g.transform.IsChildOf(_compact.rect)) continue;
-                if (_detail != null && _detail.alive && g.transform.IsChildOf(_detail.rect)) continue;
-                if (!BoundsIn(g.rectTransform, canvasRt, out Rect b)) continue;
-                if (b.width < 2f || b.height < 2f || b.width > cr.width * 0.5f || b.height > cr.height * 0.35f) continue;
-                if (b.xMax < cr.xMin + left || b.xMin > cr.xMin + left + width) continue; // not in our column
-                float top = cr.yMax - b.yMax;
-                if (top > cr.height * 0.5f) continue;
-                _stack.Add(new Vector2(top, cr.yMax - b.yMin));
-            }
-            _hudGraphics.Clear();
-            _stack.Sort((a, b) => a.x.CompareTo(b.x));
-            float bottom = 20f;
-            foreach (Vector2 e in _stack)
-            {
-                if (e.x > bottom + 48f) break; // a gap: the rest is not stacked under the top of the screen
-                bottom = Mathf.Max(bottom, e.y);
-            }
-            _stackBottom = bottom;
-            _stackLeft = left;
-        }
-
-        private static bool IsDrawn(UnityEngine.UI.Graphic g)
-        {
-            if (g == null || !g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull) return false;
-            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < 0.05f) return false; // includes CanvasGroup fades
-            if (g is TMPro.TMP_Text txt && string.IsNullOrEmpty(txt.text)) return false;
-            return true;
-        }
-
-        private bool BoundsIn(RectTransform rt, RectTransform space, out Rect bounds)
-        {
-            rt.GetWorldCorners(_corners);
-            float xMin = float.MaxValue, yMin = float.MaxValue, xMax = float.MinValue, yMax = float.MinValue;
-            for (int i = 0; i < 4; i++)
-            {
-                Vector3 p = space.InverseTransformPoint(_corners[i]);
-                xMin = Mathf.Min(xMin, p.x);
-                xMax = Mathf.Max(xMax, p.x);
-                yMin = Mathf.Min(yMin, p.y);
-                yMax = Mathf.Max(yMax, p.y);
-            }
-            bounds = Rect.MinMaxRect(xMin, yMin, xMax, yMax);
-            return !float.IsNaN(xMin) && !float.IsInfinity(xMin);
-        }
-
-        /// <summary>Area covered by the visible graphics of a panel (soft shadows excluded).</summary>
-        private bool DrawnBounds(RectTransform root, RectTransform space, out Rect bounds)
-        {
-            bounds = default;
-            bool any = false;
-            root.GetComponentsInChildren(false, _hudGraphics);
-            foreach (UnityEngine.UI.Graphic g in _hudGraphics)
-            {
-                if (!IsDrawn(g) || g.name.IndexOf("Shadow", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                if (g.transform.parent != null && g.transform.parent.name.IndexOf("Shadow", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                if (!BoundsIn(g.rectTransform, space, out Rect b)) continue;
-                bounds = any ? Rect.MinMaxRect(Mathf.Min(bounds.xMin, b.xMin), Mathf.Min(bounds.yMin, b.yMin),
-                                               Mathf.Max(bounds.xMax, b.xMax), Mathf.Max(bounds.yMax, b.yMax)) : b;
-                any = true;
-            }
-            _hudGraphics.Clear();
-            return any;
-        }
-
-        private static Sprite FindSprite(Transform root, string path)
-        {
-            Transform t = root.Find(path);
-            UnityEngine.UI.Image img = t != null ? t.GetComponent<UnityEngine.UI.Image>() : null;
-            return img != null ? img.sprite : null;
-        }
 
         private static void PlaceFallback(RectTransform rt, Vector2 anchor, Vector2 pos)
         {
@@ -596,11 +412,9 @@ namespace DreamDpsMeter
 
         private void DestroyPanels()
         {
-            if (_compact != null) _compact.Destroy();
             if (_detail != null) _detail.Destroy();
             if (_recap != null) _recap.Destroy();
             _result.Clear();
-            _compact = null;
             _detail = null;
             _recap = null;
         }
@@ -675,8 +489,8 @@ namespace DreamDpsMeter
             return null;
         }
 
-        /// <summary>Always-visible panel (top-left): total damage, DPS and healing; gold and dream dust earned.</summary>
-        private void RenderCompact(float now)
+        /// <summary>Summary above the stats window (key not held): damage, DPS, healing, damage taken; gold and dream dust earned.</summary>
+        private void RenderSummary(float now)
         {
             _specs.Clear();
             FindCurrencyIcons();
@@ -692,32 +506,31 @@ namespace DreamDpsMeter
                 : _tracker.inFight ? "<i>" + Dim("combat " + FormatTime(fight), "BB") + "</i>" : "";
             _specs.Add(new RowSpec
             {
-                height = 48f, fontSize = 28f, header = true,
-                left = "<b>" + Col(_titleColor, "Dégâts") + "</b>" + (state.Length > 0 ? "   <size=80%>" + state + "</size>" : "")
+                height = 46f, fontSize = 28f, header = true,
+                left = "<b>" + Col(_titleColor, "Dégâts") + "</b>",
+                right = state.Length > 0 ? "<size=80%>" + state + "</size>" : ""
             });
-            // Star centred in the circle of the (mirrored) objective corner ornament.
-            _compact.SetCornerIcon(_headerIcon, HeaderIconColor, 28f, new Vector2(41.5f, 25.8f));
 
             if (list.Count == 0)
             {
-                _specs.Add(new RowSpec { height = 42f, fontSize = 27f, left = "<i>" + Dim("Aucun dégât pour l'instant", "AA") + "</i>" });
+                _specs.Add(new RowSpec { height = 40f, fontSize = 25f, left = "<i>" + Dim("Aucun dégât pour l'instant", "AA") + "</i>" });
             }
             for (int i = 0; i < list.Count; i++)
             {
                 PlayerStats p = list[i];
                 Color pc = PlayerColors[p.colorIndex % PlayerColors.Length];
-                string name = (multi ? Dim((i + 1) + ".", "99") + "  " : "") + Col(pc, Escape(p.name, 16));
+                string name = multi ? Dim((i + 1) + ".", "99") + " " + Col(pc, Escape(p.name, 16)) : Col(pc, "Total"); // solo: the name only takes room
                 // During a boss fight the DPS shown is the DPS on the boss.
                 string dps = boss != null
                     ? Col(BossColor, Fmt(boss.Of(p.player) / boss.Duration(now)) + " dps")
                     : Dim(Fmt(p.fightDamage / fight) + " dps", "AA");
                 string right = (p.runDamage <= 0 ? Dim("—", "77") : "<b>" + Col(ValueColor, Fmt(p.runDamage)) + "</b>")
-                               + "  <size=80%>" + dps
-                               + "  " + Col(HealColor, "+" + Fmt(p.runHeal))
-                               + "  " + Col(TakenColor, "-" + Fmt(p.runTaken)) + "</size>";
+                               + " <size=78%>" + dps
+                               + " " + Col(HealColor, "+" + Fmt(p.runHeal))
+                               + " " + Col(TakenColor, "-" + Fmt(p.runTaken)) + "</size>";
                 _specs.Add(new RowSpec
                 {
-                    height = 42f, fontSize = 27f, left = name, right = right,
+                    height = 40f, fontSize = 25f, left = name, right = right,
                     fill = top > 0 ? (float)(p.runDamage / top) : 0f, barColor = WithAlpha(pc, 0.7f), thinBar = true
                 });
 
@@ -730,13 +543,14 @@ namespace DreamDpsMeter
                               + (_dustIcon == null ? " " + Dim("poussière de rêve", "AA") : "");
                 _specs.Add(new RowSpec
                 {
-                    height = 36f, fontSize = 24f, indent = 0f,
-                    icon = _goldIcon, iconSize = 26f, left = gold,
+                    height = 34f, fontSize = 22f, indent = 0f,
+                    icon = _goldIcon, iconSize = 24f, left = gold,
                     rightIcon = _dustIcon, right = dust
                 });
                 AddElementRows(p.runByKind, 0f);
             }
-            _compact.Render(_specs, _compactWidth);
+            _detail.maxHeight = 0f; // never scrolls
+            _detail.Render(_specs, _detailWidth);
         }
 
         /// <summary>
@@ -823,16 +637,11 @@ namespace DreamDpsMeter
             _detail.Render(_specs, _detailWidth);
         }
 
-        /// <summary>
-        /// Tallest the detail may get before its list scrolls: at most ~11 sources, never past the top of the screen,
-        /// and never over the damage panel (top-left), which gets taller with each player.
-        /// </summary>
+        /// <summary>Tallest the detail may get before its list scrolls: 7 sources, and never past the top of the screen.</summary>
         private float DetailMaxHeight()
         {
             // Header (46 + gap) and N source rows (40 + gap), plus the panel padding.
-            int rows = Mathf.Clamp(config.detailMaxRows, 3, 30);
-            float cap = _detail.padding.z + 48f + rows * 42f - 2f + _detail.padding.w;
-            const float margin = 16f;
+            float cap = _detail.padding.z + 48f + DetailMaxRows * 42f - 2f + _detail.padding.w;
             if (_detailFallback) return cap;
             RectTransform rt = _detail.rect;
             Camera cam = CanvasCamera(rt);
@@ -841,28 +650,7 @@ namespace DreamDpsMeter
             float perUnit = RectTransformUtility.WorldToScreenPoint(cam, rt.TransformPoint(new Vector3(0f, 100f, 0f))).y - bottom;
             if (perUnit <= 0f) return cap;
             perUnit /= 100f;
-
-            float ceiling = Screen.height - 40f * perUnit;
-            if (_compact != null && _compact.alive && !_compactFallback && _compact.rect.gameObject.activeInHierarchy)
-            {
-                // Only when both panels share the same horizontal band.
-                Camera ccam = CanvasCamera(_compact.rect);
-                Vector3[] c = new Vector3[4];
-                _compact.rect.GetWorldCorners(c);
-                float cMinX = float.MaxValue, cMaxX = float.MinValue, cMinY = float.MaxValue;
-                foreach (Vector3 w in c)
-                {
-                    Vector2 s = RectTransformUtility.WorldToScreenPoint(ccam, w);
-                    cMinX = Mathf.Min(cMinX, s.x);
-                    cMaxX = Mathf.Max(cMaxX, s.x);
-                    cMinY = Mathf.Min(cMinY, s.y);
-                }
-                rt.GetWorldCorners(c);
-                float dMinX = RectTransformUtility.WorldToScreenPoint(cam, c[0]).x;
-                float dMaxX = RectTransformUtility.WorldToScreenPoint(cam, c[2]).x;
-                if (dMinX < cMaxX && dMaxX > cMinX) ceiling = Mathf.Min(ceiling, cMinY - margin * perUnit);
-            }
-            float room = (ceiling - bottom) / perUnit;
+            float room = (Screen.height - 40f * perUnit - bottom) / perUnit;
             return Mathf.Clamp(room, 200f, cap);
         }
 
@@ -888,7 +676,7 @@ namespace DreamDpsMeter
         private bool IsResultScreen()
         {
             InGameUIManager ui = InGameUIManager.softInstance;
-            return config.enabled && ui != null && ui.IsState("Result");
+            return ui != null && ui.IsState("Result");
         }
 
         private readonly ResultScreen _result = new ResultScreen();
@@ -1086,7 +874,8 @@ namespace DreamDpsMeter
                 sb.AppendLine("=== Quest display item parent ===");
                 sb.Append(UiSkin.DumpHierarchy(quests != null ? quests.itemParent : null));
                 sb.AppendLine("=== Party display ===");
-                sb.Append(UiSkin.DumpHierarchy(_party != null ? _party.transform : null));
+                UI_InGame_PartyDisplay party = UnityEngine.Object.FindObjectOfType<UI_InGame_PartyDisplay>();
+                sb.Append(UiSkin.DumpHierarchy(party != null ? party.transform : null));
                 sb.AppendLine("=== Hero detail window ===");
                 sb.Append(UiSkin.DumpHierarchy(window != null ? window.transform : null));
                 // Outside of Mods/: a file written there would trigger the game's mod auto-reload.

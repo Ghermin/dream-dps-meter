@@ -118,6 +118,45 @@ namespace DreamDpsMeter
         private TextStyle _headerStyle;
         private TextStyle _bodyStyle;
 
+        private static Sprite _softSprite;
+
+        /// <summary>
+        /// White sprite with a transparent 1-texel rim, drawn sliced: bilinear filtering fades every edge over about
+        /// one unit, so bars stay smooth on the tilted stats window (plain quads look jagged there).
+        /// </summary>
+        private static Sprite SoftSprite()
+        {
+            if (_softSprite != null) return _softSprite;
+            const int n = 6;
+            Texture2D tex = new Texture2D(n, n, TextureFormat.RGBA32, false)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+                name = "DreamDpsMeter Soft"
+            };
+            Color32[] px = new Color32[n * n];
+            for (int y = 0; y < n; y++)
+            {
+                for (int x = 0; x < n; x++)
+                {
+                    bool rim = x == 0 || y == 0 || x == n - 1 || y == n - 1;
+                    px[y * n + x] = new Color32(255, 255, 255, rim ? (byte)0 : (byte)255);
+                }
+            }
+            tex.SetPixels32(px);
+            tex.Apply(false, true);
+            _softSprite = Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), 100f, 0,
+                SpriteMeshType.FullRect, new Vector4(2f, 2f, 2f, 2f));
+            return _softSprite;
+        }
+
+        private static void Soften(Image img)
+        {
+            img.sprite = SoftSprite();
+            img.type = Image.Type.Sliced;
+            img.pixelsPerUnitMultiplier = 1f;
+        }
+
         public static MeterPanel Create(string name, Transform parent, bool ownCanvas, Transform skinSource,
             string[] skinParts, TextStyle headerStyle, TextStyle bodyStyle)
         {
@@ -444,6 +483,7 @@ namespace DreamDpsMeter
             _track.anchorMin = _track.anchorMax = _track.pivot = new Vector2(0f, 1f);
             Image track = sb.AddComponent<Image>();
             track.raycastTarget = false;
+            Soften(track);
             track.color = new Color(1f, 1f, 1f, 0.08f);
 
             GameObject handle = new GameObject("Handle", typeof(RectTransform));
@@ -454,6 +494,7 @@ namespace DreamDpsMeter
             _handle.pivot = new Vector2(0.5f, 1f);
             _handleImage = handle.AddComponent<Image>();
             _handleImage.raycastTarget = false;
+            Soften(_handleImage);
             _handleImage.color = scrollbarColor;
             sb.SetActive(false);
         }
@@ -479,6 +520,7 @@ namespace DreamDpsMeter
             r.barRt = (RectTransform)barGo.transform;
             r.bar = barGo.AddComponent<Image>();
             r.bar.raycastTarget = false;
+            Soften(r.bar);
 
             GameObject iconGo = new GameObject("Icon", typeof(RectTransform));
             iconGo.transform.SetParent(go.transform, false);
@@ -530,7 +572,7 @@ namespace DreamDpsMeter
             r.barRt.anchorMax = new Vector2(fill, s.thinBar ? 0f : 1f);
             r.barRt.pivot = Vector2.zero;
             r.barRt.offsetMin = Vector2.zero;
-            r.barRt.offsetMax = s.thinBar ? new Vector2(0f, 2f) : Vector2.zero;
+            r.barRt.offsetMax = s.thinBar ? new Vector2(0f, 3f) : Vector2.zero;
 
             float iconSize = s.icon == null ? 0f : s.iconSize > 0f ? s.iconSize : Mathf.Min(s.height - 4f, 32f);
             r.icon.enabled = s.icon != null;
@@ -598,6 +640,7 @@ namespace DreamDpsMeter
                         go.transform.SetParent(r.rt, false);
                         Image img = go.AddComponent<Image>();
                         img.raycastTarget = false;
+                        Soften(img);
                         r.segs.Add(img);
                     }
                     Image seg = r.segs[used++];
