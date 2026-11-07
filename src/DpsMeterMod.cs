@@ -207,6 +207,7 @@ namespace DreamDpsMeter
 
             if (detailShown != _lastDetailShown || unscaled >= _nextRefresh)
             {
+                if (detailShown && !_lastDetailShown && _detail != null && _detail.alive) _detail.ScrollToTop();
                 _lastDetailShown = detailShown;
                 _nextRefresh = unscaled + RefreshInterval;
                 _tracker.SyncPlayers();
@@ -682,55 +683,30 @@ namespace DreamDpsMeter
             {
                 _specs.Add(new RowSpec { height = 42f, fontSize = 25f, left = "<i>" + Dim("Aucun dégât pour l'instant", "AA") + "</i>" });
             }
-            AddHistoryRows(DewPlayer.local, now, false);
+            _detail.maxHeight = DetailMaxHeight();
             _detail.Render(_specs, _detailWidth);
+        }
+
+        /// <summary>Tallest the detail may get before its list scrolls: at most ~11 sources, and never past the top of the screen.</summary>
+        private float DetailMaxHeight()
+        {
+            const float cap = 560f;
+            const float topMargin = 40f;
+            if (_detailFallback) return cap;
+            Canvas canvas = _detail.rect.GetComponentInParent<Canvas>();
+            float scale = _detail.rect.lossyScale.y;
+            if (canvas == null || scale <= 0f) return cap;
+            Vector3[] corners = new Vector3[4];
+            ((RectTransform)canvas.rootCanvas.transform).GetWorldCorners(corners);
+            // The panel grows upward from its bottom pivot (top of the stats window).
+            float room = (corners[1].y - _detail.rect.position.y) / scale - topMargin;
+            return Mathf.Clamp(room, 200f, cap);
         }
 
         private TextStyle _bodyStyle;
         private TextStyle _statsStyle;
         private static readonly Color BossColor = new Color32(0xFF, 0xB8, 0x55, 0xFF);
         private static readonly Color TakenColor = new Color32(0xFF, 0x7B, 0x73, 0xFF);
-
-        /// <summary>Zone history (average DPS per zone) and boss fights of a player.</summary>
-        private void AddHistoryRows(DewPlayer player, float now, bool recap)
-        {
-            float fs = recap ? 23f : 22f;
-            if (_tracker.bosses.Count > 0)
-            {
-                _specs.Add(new RowSpec { height = 34f, fontSize = 23f, header = true, left = "<b>" + Col(_titleColor, "Boss") + "</b>" });
-                foreach (BossFight b in _tracker.bosses)
-                {
-                    double mine = b.Of(player);
-                    float dur = b.Duration(now);
-                    bool multi = _tracker.players.Count > 1;
-                    string right = Dim(FormatTime(dur), "99") + "  " + Col(BossColor, "<b>" + Fmt(mine / dur) + "</b> dps")
-                                   + (multi ? "  " + Dim("groupe " + Fmt(b.total / dur), "99") : "");
-                    _specs.Add(new RowSpec
-                    {
-                        height = 32f, fontSize = fs,
-                        left = Col(StatTextColor, Escape(b.name, 20)) + (b.dead ? "" : " " + Dim("(en cours)", "88")),
-                        right = right
-                    });
-                }
-            }
-            if (_tracker.zones.Count > 0)
-            {
-                _specs.Add(new RowSpec { height = 34f, fontSize = 23f, header = true, left = "<b>" + Col(_titleColor, "Zones") + "</b>" });
-                double best = 0;
-                foreach (ZoneRecord z in _tracker.zones) best = Math.Max(best, z.Of(player) / _tracker.ZoneCombatTime(z, now));
-                foreach (ZoneRecord z in _tracker.zones)
-                {
-                    double dps = z.Of(player) / _tracker.ZoneCombatTime(z, now);
-                    _specs.Add(new RowSpec
-                    {
-                        height = 32f, fontSize = fs,
-                        left = Col(StatTextColor, Escape(z.name, 22)),
-                        right = "<b>" + Col(ValueColor, Fmt(dps)) + "</b> " + Dim("dps · " + Fmt(z.Of(player)), "99"),
-                        fill = best > 0 ? (float)(dps / best) : 0f, barColor = WithAlpha(_titleColor, 0.55f), thinBar = true
-                    });
-                }
-            }
-        }
 
         // ------------------------------------------------------------------ end-of-run recap
 
@@ -831,7 +807,6 @@ namespace DreamDpsMeter
                     });
                 }
             }
-            AddHistoryRows(DewPlayer.local, now, true);
             _recap.Render(_specs, 660f);
         }
 

@@ -71,8 +71,25 @@ namespace DreamDpsMeter
         public Vector4 padding = new Vector4(14f, 12f, 9f, 9f); // left, right, top, bottom
         public float rowGap = 1f;
 
+        /// <summary>
+        /// Max panel height (0 = the panel grows with its rows). Past it, the rows after the first
+        /// <see cref="pinnedRows"/> (the header) scroll, with a scrollbar on the right (mouse wheel or drag).
+        /// </summary>
+        public float maxHeight;
+        public int pinnedRows = 1;
+        public Color scrollbarColor = new Color(0.75f, 0.86f, 0.93f, 0.65f);
+
+        private const float ScrollbarWidth = 6f;
+        private const float ScrollbarGap = 8f;
+        private const float MinListHeight = 120f;
+
         private GameObject _ownCanvas;
         private RectTransform _content;
+        private RectTransform _viewport;
+        private Image _viewportHit;
+        private RectTransform _list;
+        private ScrollRect _scroll;
+        private Scrollbar _scrollbar;
         private readonly List<Row> _rows = new List<Row>();
         private int _used;
         private TextStyle _headerStyle;
@@ -94,6 +111,7 @@ namespace DreamDpsMeter
                 scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
                 scaler.referenceResolution = new Vector2(1920f, 1080f);
                 scaler.matchWidthOrHeight = 0.5f;
+                p._ownCanvas.AddComponent<GraphicRaycaster>(); // mouse wheel / drag on the scrollbar
                 host = p._ownCanvas.transform;
             }
 
@@ -175,19 +193,62 @@ namespace DreamDpsMeter
             if (!alive) return;
             _used = 0;
             float inner = width - padding.x - padding.y;
+            int pinned = maxHeight > 0f ? Mathf.Clamp(pinnedRows, 0, specs.Count) : specs.Count;
+
+            // Pinned rows (header): laid out directly in the panel, never scrolled.
             float y = padding.z;
-            for (int i = 0; i < specs.Count; i++)
+            for (int i = 0; i < pinned; i++)
             {
                 RowSpec s = specs[i];
-                Row r = NextRow();
+                Row r = NextRow(_content);
                 Layout(r, s, padding.x + s.indent, y, inner - s.indent);
                 y += s.height + rowGap;
             }
+
+            // The other rows go in a masked list that scrolls once the panel would exceed maxHeight.
+            float listHeight = 0f;
+            for (int i = pinned; i < specs.Count; i++) listHeight += specs[i].height + rowGap;
+            if (listHeight > 0f) listHeight -= rowGap;
+            float maxList = maxHeight > 0f ? Mathf.Max(MinListHeight, maxHeight - y - padding.w) : float.MaxValue;
+            bool scroll = listHeight > maxList + 0.5f;
+
+            float height;
+            if (listHeight > 0f)
+            {
+                EnsureScrollArea();
+                float viewHeight = scroll ? maxList : listHeight;
+                float listWidth = inner - (scroll ? ScrollbarWidth + ScrollbarGap : 0f);
+                float ly = 0f;
+                for (int i = pinned; i < specs.Count; i++)
+                {
+                    RowSpec s = specs[i];
+                    Row r = NextRow(_list);
+                    Layout(r, s, s.indent, ly, listWidth - s.indent);
+                    ly += s.height + rowGap;
+                }
+                _viewport.anchoredPosition = new Vector2(padding.x, -y);
+                _viewport.sizeDelta = new Vector2(listWidth, viewHeight);
+                _list.sizeDelta = new Vector2(listWidth, listHeight);
+                if (!scroll) _list.anchoredPosition = Vector2.zero;
+                _viewportHit.raycastTarget = scroll; // only catch the mouse when there is something to scroll
+
+                RectTransform sbrt = (RectTransform)_scrollbar.transform;
+                sbrt.anchoredPosition = new Vector2(padding.x + inner - ScrollbarWidth, -y);
+                sbrt.sizeDelta = new Vector2(ScrollbarWidth, viewHeight);
+                if (_scrollbar.gameObject.activeSelf != scroll) _scrollbar.gameObject.SetActive(scroll);
+                height = y + viewHeight + padding.w;
+            }
+            else
+            {
+                height = y - rowGap + padding.w;
+            }
+            if (_viewport != null && _viewport.gameObject.activeSelf != listHeight > 0f) _viewport.gameObject.SetActive(listHeight > 0f);
+            if (_scrollbar != null && listHeight <= 0f && _scrollbar.gameObject.activeSelf) _scrollbar.gameObject.SetActive(false);
+
             for (int i = _used; i < _rows.Count; i++)
             {
                 if (_rows[i].rt.gameObject.activeSelf) _rows[i].rt.gameObject.SetActive(false);
             }
-            float height = y - rowGap + padding.w;
             rect.sizeDelta = new Vector2(width, height);
             if (layout != null && !layout.ignoreLayout)
             {
@@ -197,18 +258,84 @@ namespace DreamDpsMeter
             }
         }
 
-        private Row NextRow()
+        /// <summary>Back to the top of the scrolled list (e.g. when the panel is opened again).</summary>
+        public void ScrollToTop()
         {
-            if (_used >= _rows.Count) _rows.Add(CreateRow());
+            if (_list != null) _list.anchoredPosition = Vector2.zero;
+            if (_scroll != null) _scroll.StopMovement();
+        }
+
+        /// <summary>Masked viewport + list moved by a ScrollRect, and a thin scrollbar beside it (created on first use).</summary>
+        private void EnsureScrollArea()
+        {
+            if (_viewport != null) return;
+
+            GameObject vp = new GameObject("Viewport", typeof(RectTransform));
+            vp.transform.SetParent(rect, false);
+            _viewport = (RectTransform)vp.transform;
+            _viewport.anchorMin = _viewport.anchorMax = _viewport.pivot = new Vector2(0f, 1f);
+            _viewportHit = vp.AddComponent<Image>();
+            _viewportHit.color = new Color(0f, 0f, 0f, 0f); // invisible, only receives the mouse wheel
+            vp.AddComponent<RectMask2D>();
+
+            GameObject list = new GameObject("List", typeof(RectTransform));
+            list.transform.SetParent(_viewport, false);
+            _list = (RectTransform)list.transform;
+            _list.anchorMin = _list.anchorMax = _list.pivot = new Vector2(0f, 1f);
+
+            GameObject sb = new GameObject("Scrollbar", typeof(RectTransform));
+            sb.transform.SetParent(rect, false);
+            RectTransform sbrt = (RectTransform)sb.transform;
+            sbrt.anchorMin = sbrt.anchorMax = sbrt.pivot = new Vector2(0f, 1f);
+            Image track = sb.AddComponent<Image>();
+            track.color = new Color(1f, 1f, 1f, 0.08f);
+
+            GameObject area = new GameObject("Sliding Area", typeof(RectTransform));
+            area.transform.SetParent(sb.transform, false);
+            RectTransform art = (RectTransform)area.transform;
+            art.anchorMin = Vector2.zero;
+            art.anchorMax = Vector2.one;
+            art.offsetMin = art.offsetMax = Vector2.zero;
+
+            GameObject handle = new GameObject("Handle", typeof(RectTransform));
+            handle.transform.SetParent(area.transform, false);
+            RectTransform hrt = (RectTransform)handle.transform;
+            hrt.offsetMin = hrt.offsetMax = Vector2.zero;
+            Image himg = handle.AddComponent<Image>();
+            himg.color = scrollbarColor;
+
+            _scrollbar = sb.AddComponent<Scrollbar>();
+            _scrollbar.handleRect = hrt;
+            _scrollbar.targetGraphic = himg;
+            _scrollbar.direction = Scrollbar.Direction.BottomToTop;
+            _scrollbar.navigation = new Navigation { mode = Navigation.Mode.None }; // never grabs gamepad focus
+            sb.SetActive(false);
+
+            _scroll = vp.AddComponent<ScrollRect>();
+            _scroll.viewport = _viewport;
+            _scroll.content = _list;
+            _scroll.horizontal = false;
+            _scroll.vertical = true;
+            _scroll.movementType = ScrollRect.MovementType.Clamped;
+            _scroll.inertia = false;
+            _scroll.scrollSensitivity = 40f; // about one row per wheel notch
+            _scroll.verticalScrollbar = _scrollbar;
+            _scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
+        }
+
+        private Row NextRow(RectTransform parent)
+        {
+            if (_used >= _rows.Count) _rows.Add(CreateRow(parent));
             Row r = _rows[_used++];
+            if (r.rt.parent != parent) r.rt.SetParent(parent, false);
             if (!r.rt.gameObject.activeSelf) r.rt.gameObject.SetActive(true);
             return r;
         }
 
-        private Row CreateRow()
+        private Row CreateRow(RectTransform parent)
         {
             GameObject go = new GameObject("Row", typeof(RectTransform));
-            go.transform.SetParent(_content, false);
+            go.transform.SetParent(parent, false);
             Row r = new Row { rt = (RectTransform)go.transform };
             r.rt.anchorMin = r.rt.anchorMax = r.rt.pivot = new Vector2(0f, 1f);
 

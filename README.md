@@ -31,7 +31,7 @@ la télécharge et te prévient ; elle s'applique au lancement suivant. (Désact
 **Touche Ctrl — au-dessus des caractéristiques** :
 - le détail de tes dégâts par mémoire, essence, passif, élément (brûlure, givre…) et attaque de base, avec icônes ;
 - soins et boucliers apportés par chaque source (non comptés dans le DPS) ;
-- historique : DPS sur chaque boss et DPS moyen par zone.
+- une barre de défilement apparaît quand il y a trop de sources pour l'espace disponible (molette ou glisser).
 
 **Barre de compétences** : un petit % au-dessus de chaque mémoire et sous chaque essence (part de tes dégâts).
 
@@ -53,7 +53,12 @@ Le projet se trouve directement dans `Shape of Dreams\Mods\DreamDpsMeter` (il r�
 
 ```powershell
 dotnet build -c Release      # compile et copie DreamDpsMeter.dll à la racine du mod
-.\release.ps1 1.2.0          # publie une version : DLL dans release\, version.txt, commit, tag, push
+.\release.ps1                # publie une version (1.1.0 -> 1.1.1) : DLL dans release\, version.txt, commit, tag, push
+.\release.ps1 1.2.0          # idem avec un numéro choisi
 ```
+
+Un simple `git push` ne met personne à jour : la mise à jour auto compare `release/version.txt` et télécharge
+`release/DreamDpsMeter.dll`, que seul `release.ps1` reconstruit (la compilation a besoin des DLL du jeu, donc en local).
+Le script trouve le jeu tout seul (`..\..` ou bibliothèques Steam), il marche aussi depuis un clone hors du dossier `Mods`.
 
 Avec le mode développeur et l'auto-reload du gestionnaire de mods, chaque compilation est rechargée en jeu.
