@@ -516,18 +516,24 @@ namespace DreamDpsMeter
                     ? Col(BossColor, Fmt(boss.Of(p.player) / boss.Duration(now)) + " dps")
                     : Dim(Fmt(p.fightDamage / fight) + " dps", "AA");
                 string right = (p.runDamage <= 0 ? Dim("—", "77") : "<b>" + Col(ValueColor, Fmt(p.runDamage)) + "</b>")
-                               + " <size=78%>" + dps
-                               + " " + Col(HealColor, "+" + Fmt(p.runHeal))
-                               + " " + Col(TakenColor, "-" + Fmt(p.runTaken)) + "</size>";
+                               + " <size=78%>" + dps + "</size>";
                 _specs.Add(new RowSpec
                 {
                     height = 40f, fontSize = 25f, left = name, right = right,
                     fill = top > 0 ? (float)(p.runDamage / top) : 0f, barColor = WithAlpha(pc, 0.7f), thinBar = true
                 });
 
-                if (p.player != DewPlayer.local) continue; // other players: summary line only
+                // Healing received / health lost, on the line below so the name keeps its room.
+                string life = Col(HealColor, "+" + Fmt(p.runHeal)) + "  " + Col(TakenColor, "-" + Fmt(p.runTaken));
 
-                // Currencies earned this run.
+                if (p.player != DewPlayer.local)
+                {
+                    // Other players: no currencies, just their health line.
+                    _specs.Add(new RowSpec { height = 30f, fontSize = 21f, left = life });
+                    continue;
+                }
+
+                // Currencies earned this run, with the health line between them.
                 string gold = Col(GoldColor, "+" + p.runGold.ToString("#,0", CultureInfo.InvariantCulture).Replace(",", " "))
                               + (_goldIcon == null ? " " + Dim("or", "AA") : "");
                 string dust = Col(DustColor, "+" + p.runDreamDust.ToString("#,0", CultureInfo.InvariantCulture).Replace(",", " "))
@@ -535,7 +541,7 @@ namespace DreamDpsMeter
                 _specs.Add(new RowSpec
                 {
                     height = 34f, fontSize = 22f, indent = 0f,
-                    icon = _goldIcon, iconSize = 24f, left = gold,
+                    icon = _goldIcon, iconSize = 24f, left = gold + "   " + life,
                     rightIcon = _dustIcon, right = dust
                 });
                 AddElementRows(p.runByKind, 0f);
