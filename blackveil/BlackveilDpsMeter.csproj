@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoStdLib>true</NoStdLib>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyName>BlackveilDpsMeter</AssemblyName>
+    <RootNamespace>BlackveilDpsMeter</RootNamespace>
+    <Nullable>disable</Nullable>
+
+    <!-- Dossier du jeu : surchargé par release.ps1 (-p:GameDir=...) -->
+    <GameDir Condition="'$(GameDir)'==''">C:\Program Files (x86)\Steam\steamapps\common\Raiders of Blackveil</GameDir>
+    <GameManagedDir>$(GameDir)\RoB_Data\Managed</GameManagedDir>
+    <BepInExCore>$(GameDir)\BepInEx\core</BepInExCore>
+    <!-- Copie automatique dans BepInEx\plugins après compilation (mettre à false pour désactiver) -->
+    <DeployToGame Condition="'$(DeployToGame)'==''">true</DeployToGame>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <GameRef Include="mscorlib;netstandard;System;System.Core;Assembly-CSharp;Fusion.Runtime;Fusion.Common;Fusion.Realtime;UnityEngine;UnityEngine.CoreModule;UnityEngine.UIElementsModule;UnityEngine.TextCoreTextEngineModule;UnityEngine.TextCoreFontEngineModule;UnityEngine.TextRenderingModule;UnityEngine.InputLegacyModule;UnityEngine.UnityWebRequestModule;UnityEngine.ImageConversionModule;UnityEngine.ScreenCaptureModule;Unity.InputSystem;Unity.Localization;UniTask" />
+    <Reference Include="@(GameRef)">
+      <HintPath>$(GameManagedDir)\%(Identity).dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExCore)\BepInEx.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExCore)\0Harmony.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="release\**;bin\**;obj\**" />
+  </ItemGroup>
+
+  <Target Name="DeployPlugin" AfterTargets="Build" Condition="'$(DeployToGame)'=='true' And Exists('$(GameDir)\BepInEx')">
+    <MakeDir Directories="$(GameDir)\BepInEx\plugins\BlackveilDpsMeter" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\BepInEx\plugins\BlackveilDpsMeter" />
+  </Target>
+</Project>

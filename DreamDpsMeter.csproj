@@ -290,6 +290,7 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)" />
   </Target>
   <ItemGroup>
-    <Compile Remove="release\**;bin\**;obj\**" />
+    <Compile Remove="release\**;bin\**;obj\**;blackveil\**" />
+    <None Remove="blackveil\**" />
   </ItemGroup>
 </Project>
