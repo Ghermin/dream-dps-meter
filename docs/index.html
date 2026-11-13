@@ -49,19 +49,6 @@
   .pg-btn--primary { background: var(--pg-grad); color: #fff; border-color: transparent; }
   .pg-btn svg { width: 18px; height: 18px; }
 
-  /* Les deux captures en éventail dans l'accroche */
-  .hero-shots { position: relative; margin-top: clamp(40px, 6vw, 64px); aspect-ratio: 16 / 7.4; }
-  .hero-shots img {
-    position: absolute; width: 68%; border-radius: 14px; border: 1px solid var(--pg-line);
-    box-shadow: var(--shot-shadow); background: #000;
-  }
-  .hero-shots img:first-child { left: 0; top: 0; transform: rotate(-2deg); }
-  .hero-shots img:last-child { right: 0; top: 14%; transform: rotate(2deg); }
-  @media (max-width: 640px) {
-    .hero-shots { aspect-ratio: auto; display: grid; gap: 14px; }
-    .hero-shots img { position: static; width: 100%; transform: none !important; }
-  }
-
   /* Un bloc par jeu : capture + ce que ça montre */
   .game { display: grid; gap: clamp(24px, 4vw, 48px); grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: center; }
   .game + .game { margin-top: clamp(56px, 8vw, 88px); }
@@ -127,11 +114,6 @@
       <a class="pg-btn" href="#jeux">Voir les jeux</a>
     </div>
     <p class="pg-meta">Windows 10 et 11 · jeux Steam · gratuit et open source</p>
-
-    <div class="hero-shots">
-      <img src="screens/shape-of-dreams.jpg" alt="Écran de fin de run de Shape of Dreams avec les dégâts de chaque mémoire et essence" width="1600" height="900">
-      <img src="screens/blackveil.jpg" alt="Raiders of Blackveil : le panneau des dégâts par compétence et altération" width="1600" height="900">
-    </div>
   </section>
 
   <section class="pg-section" id="jeux">
