@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Installeur Windows des DPS meters : un seul petit .exe, .NET Framework 4.8 (déjà présent dans Windows 10 et 11).
+       Il lit ../games.json sur GitHub : un nouveau jeu apparaît sans recompiler l'installeur.
+       Compiler : dotnet build installer -c Release  ->  installer\bin\Release\net48\Installer-DPS-Meters.exe -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Installer-DPS-Meters</AssemblyName>
+    <RootNamespace>DpsMetersInstaller</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Product>DPS meters</Product>
+    <AssemblyTitle>Installeur des DPS meters</AssemblyTitle>
+    <Company>Ghermin</Company>
+    <Copyright>MIT</Copyright>
+    <Version>1.0.0</Version>
+    <!-- Aucun chemin de la machine de compilation dans l'exe -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <Deterministic>true</Deterministic>
+    <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
+    <GenerateResourceUsePreserializedResources>false</GenerateResourceUsePreserializedResources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Installer-DPS-Meters.bat" />
+  </ItemGroup>
+</Project>

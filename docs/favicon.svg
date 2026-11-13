@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="dps-meters-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff8a3d"/>
+      <stop offset="1" stop-color="#d42a63"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#dps-meters-bg)"/>
+  <g id="glyph" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Barres de dégâts, de la plus forte à la plus faible -->
+    <path d="M14 18h36"/>
+    <path d="M14 30h22"/>
+    <path d="M14 42h11" stroke-opacity=".55"/>
+    <!-- Éclair : les dégâts -->
+    <path d="M45 33l-8 10.5h7l-2.5 9.5 9-11.5h-7z" fill="#fff" stroke-width="2.5"/>
+  </g>
+</svg>

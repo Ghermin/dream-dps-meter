@@ -24,6 +24,14 @@
     <Optimize>true</Optimize>
   </PropertyGroup>
 
+  <!-- DLL publiée : aucun chemin de la machine de compilation (pas de PDB, chemins sources neutres) -->
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <Deterministic>true</Deterministic>
+    <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
+  </PropertyGroup>
+
   <ItemGroup>
     <GameRef Include="mscorlib;netstandard;System;System.Core;Assembly-CSharp;Fusion.Runtime;Fusion.Common;Fusion.Realtime;UnityEngine;UnityEngine.CoreModule;UnityEngine.UIElementsModule;UnityEngine.TextCoreTextEngineModule;UnityEngine.TextCoreFontEngineModule;UnityEngine.TextRenderingModule;UnityEngine.InputLegacyModule;UnityEngine.UnityWebRequestModule;UnityEngine.ImageConversionModule;UnityEngine.ScreenCaptureModule;Unity.InputSystem;Unity.Localization;UniTask" />
     <Reference Include="@(GameRef)">

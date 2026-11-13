@@ -10,7 +10,7 @@ using UnityEngine.UI;
 namespace DreamDpsMeter
 {
     /// <summary>
-    /// Self-update: at game start, compares this build with release/version.txt on GitHub and, if newer,
+    /// Self-update: at game start, compares this build with shape-of-dreams/release/version.txt on GitHub and, if newer,
     /// downloads release/DreamDpsMeter.dll over the installed one (applied at the next game start).
     /// Only ever downloads from this mod's own repository, over HTTPS.
     /// </summary>
@@ -178,8 +178,11 @@ namespace DreamDpsMeter
             }
         }
 
-        /// <summary>Files of the Mods menu (icon, preview, description) that only the DLL update would otherwise never refresh.</summary>
-        private static readonly string[] AboutFiles = { "icon.png", "preview.png", "description.txt" };
+        /// <summary>
+        /// Files of the Mods menu (icon, preview, description, version shown) that only the DLL update would otherwise never refresh.
+        /// metadata.json is included for players who updated from 1.1.6 or older, whose updater read it from the old repository layout.
+        /// </summary>
+        private static readonly string[] AboutFiles = { "icon.png", "preview.png", "description.txt", "metadata.json" };
 
         /// <summary>
         /// Once per installed version: bring about/ in line with the repository (icon, preview, description).
@@ -209,7 +212,9 @@ namespace DreamDpsMeter
                     yield return req.SendWebRequest();
                     byte[] data = req.result == UnityWebRequest.Result.Success ? req.downloadHandler.data : null;
                     bool png = name.EndsWith(".png", StringComparison.OrdinalIgnoreCase);
-                    if (data == null || data.Length == 0 || (png && (data.Length < 8 || data[0] != 0x89 || data[1] != (byte)'P')))
+                    bool json = name.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+                    if (data == null || data.Length == 0 || (png && (data.Length < 8 || data[0] != 0x89 || data[1] != (byte)'P'))
+                        || (json && !System.Text.Encoding.UTF8.GetString(data).Contains("\"assemblies\"")))
                     {
                         ok = false;
                         continue;

@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DPS meters : tes dégâts en direct, dans le style du jeu</title>
+<meta name="description" content="Des DPS meters intégrés à l'interface de Shape of Dreams et de Raiders of Blackveil : dégâts, DPS et détail par compétence, en solo comme en multi. Un installeur, et les mises à jour se font toutes seules.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f7f4f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e0f13" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:title" content="DPS meters">
+<meta property="og:description" content="Tes dégâts en direct, dans le style du jeu. Shape of Dreams et Raiders of Blackveil.">
+<meta property="og:image" content="https://ghermin.github.io/dream-dps-meter/screens/blackveil.jpg">
+<meta property="og:url" content="https://ghermin.github.io/dream-dps-meter/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="playground.css">
+<style>
+  :root {
+    --pg-bg: #f7f4f1; --pg-surface: #ffffff; --pg-surface-2: #f1ece6; --pg-line: #e6dfd7; --pg-dot: rgba(30, 20, 15, .08);
+    --pg-accent: #e5531a; --pg-accent-2: #d42a63;
+    --shot-shadow: 0 30px 60px -30px rgba(60, 25, 10, .45);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --pg-bg: #0e0f13; --pg-surface: #17181e; --pg-surface-2: #1f2028; --pg-line: #2a2b34; --pg-dot: rgba(241, 240, 244, .06);
+      --pg-accent: #ff8a3d; --pg-accent-2: #ff4f86; --pg-on-accent: #ffffff;
+      --shot-shadow: 0 30px 70px -28px rgba(0, 0, 0, .8);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { font-family: "Chakra Petch", system-ui, sans-serif; font-size: 16.5px; }
+  a { color: var(--pg-accent); }
+  img { max-width: 100%; height: auto; }
+
+  /* Halo de braise derrière l'accroche, comme l'icône */
+  .pg-hero { position: relative; }
+  .pg-hero::before {
+    content: ""; position: absolute; inset: -90px -20vw auto; height: 620px; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(30% 42% at 20% 20%, color-mix(in srgb, var(--pg-accent) 18%, transparent), transparent 70%),
+      radial-gradient(30% 42% at 78% 14%, color-mix(in srgb, var(--pg-accent-2) 14%, transparent), transparent 70%);
+  }
+  .pg-btn--primary { background: var(--pg-grad); color: #fff; border-color: transparent; }
+  .pg-btn svg { width: 18px; height: 18px; }
+
+  /* Les deux captures en éventail dans l'accroche */
+  .hero-shots { position: relative; margin-top: clamp(40px, 6vw, 64px); aspect-ratio: 16 / 7.4; }
+  .hero-shots img {
+    position: absolute; width: 68%; border-radius: 14px; border: 1px solid var(--pg-line);
+    box-shadow: var(--shot-shadow); background: #000;
+  }
+  .hero-shots img:first-child { left: 0; top: 0; transform: rotate(-2deg); }
+  .hero-shots img:last-child { right: 0; top: 14%; transform: rotate(2deg); }
+  @media (max-width: 640px) {
+    .hero-shots { aspect-ratio: auto; display: grid; gap: 14px; }
+    .hero-shots img { position: static; width: 100%; transform: none !important; }
+  }
+
+  /* Un bloc par jeu : capture + ce que ça montre */
+  .game { display: grid; gap: clamp(24px, 4vw, 48px); grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: center; }
+  .game + .game { margin-top: clamp(56px, 8vw, 88px); }
+  .game.flip { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
+  .game.flip figure { order: 2; }
+  @media (max-width: 860px) { .game, .game.flip { grid-template-columns: 1fr; } .game.flip figure { order: 0; } }
+  .game figure { margin: 0; }
+  .game figure img { display: block; border-radius: 14px; border: 1px solid var(--pg-line); box-shadow: var(--shot-shadow); }
+  .game figcaption { margin-top: 10px; font: 12.5px/1.5 var(--pg-mono); color: var(--pg-muted); }
+  .game h3 { margin: 6px 0 4px; font-size: clamp(26px, 3.4vw, 34px); line-height: 1.1; letter-spacing: -0.02em; }
+  .game .for { margin: 0 0 18px; color: var(--pg-muted); }
+  .game ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+  .game li { position: relative; padding-left: 26px; }
+  .game li::before {
+    content: ""; position: absolute; left: 0; top: .55em; width: 12px; height: 4px; border-radius: 2px; background: var(--pg-grad);
+  }
+  kbd {
+    font: 500 .85em var(--pg-mono); padding: 1px 6px; border-radius: 6px;
+    border: 1px solid var(--pg-line); border-bottom-width: 2px; background: var(--pg-surface);
+  }
+
+  .features .pg-card h3 { display: flex; align-items: center; gap: 10px; }
+  .bar { width: 14px; height: 4px; border-radius: 2px; flex: none; background: var(--pg-grad); }
+  .pg-end img { border-radius: 14px; }
+</style>
+</head>
+<body class="pg-page">
+<nav class="pg-strip" aria-label="Bored Dev Playground">
+  <div class="pg-strip__in">
+    <a class="pg-strip__home" href="https://ghermin.github.io/">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="pg-logo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c5cff"/><stop offset="1" stop-color="#ff6b6b"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#pg-logo)"/><path d="M14 27h14M36 27h14" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><path d="M16 27a5 5 0 0 0 10 0zM38 27a5 5 0 0 0 10 0z" fill="#fff"/><rect x="24" y="41" width="16" height="4.5" rx="2.25" fill="#fff"/></svg>
+      <b>bored dev playground</b><span class="pg-strip__crumb">/ dps-meters</span>
+    </a>
+    <a class="pg-strip__all" href="https://ghermin.github.io/">tous les projets <span aria-hidden="true">→</span></a>
+  </div>
+</nav>
+
+<header class="pg-top">
+  <a class="pg-brand" href="#"><img src="favicon.svg" alt="">DPS meters</a>
+  <nav class="pg-nav">
+    <a href="#jeux">Jeux</a>
+    <a href="#installer">Installer</a>
+    <a class="pg-gh" href="https://github.com/Ghermin/dream-dps-meter">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </nav>
+</header>
+
+<main>
+  <section class="pg-hero">
+    <div class="pg-hero__tags">
+      <p class="pg-kicker">~/projets/dps-meters</p>
+      <ul class="pg-chips" role="list"><li>Windows</li><li>Steam</li><li>Mods</li></ul>
+    </div>
+    <h1>Tes dégâts en direct, <span class="pg-grad">dans le style du jeu</span>.</h1>
+    <p class="pg-lead">Un DPS meter qui se fond dans l'interface d'origine : combien tu tapes, avec quoi, et qui porte l'équipe. Un installeur, deux clics, et il se met à jour tout seul.</p>
+    <div class="pg-cta">
+      <a class="pg-btn pg-btn--primary" href="https://github.com/Ghermin/dream-dps-meter/releases/download/installer/Installer-DPS-Meters.exe">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg>
+        Télécharger l'installeur
+      </a>
+      <a class="pg-btn" href="#jeux">Voir les jeux</a>
+    </div>
+    <p class="pg-meta">Windows 10 et 11 · jeux Steam · gratuit et open source</p>
+
+    <div class="hero-shots">
+      <img src="screens/shape-of-dreams.jpg" alt="Écran de fin de run de Shape of Dreams avec les dégâts de chaque mémoire et essence" width="1600" height="900">
+      <img src="screens/blackveil.jpg" alt="Raiders of Blackveil : le panneau des dégâts par compétence et altération" width="1600" height="900">
+    </div>
+  </section>
+
+  <section class="pg-section" id="jeux">
+    <p class="pg-kicker">Jeux</p>
+    <h2>Un DPS meter par jeu</h2>
+    <p class="pg-section__lead">Chacun reprend les cadres, les polices et les icônes de son jeu, pour avoir l'air d'en faire partie.</p>
+
+    <article class="game">
+      <figure>
+        <img src="screens/shape-of-dreams.jpg" alt="Écran de fin de run de Shape of Dreams avec le DPS meter" width="1600" height="900" loading="lazy">
+        <figcaption>L'écran de fin de run, avec le détail de chaque source</figcaption>
+      </figure>
+      <div>
+        <p class="pg-kicker">Shape of Dreams</p>
+        <h3>Dream DPS Meter</h3>
+        <p class="for">Pour voir enfin quelle mémoire fait le travail.</p>
+        <ul>
+          <li>Tes dégâts et ton DPS en direct, juste au-dessus de tes caractéristiques.</li>
+          <li><kbd>Ctrl</kbd> pour le détail par mémoire, essence et élément.</li>
+          <li>À la fin de la run, la part de chaque mémoire, même celles abandonnées en route.</li>
+          <li>En multi, le classement des joueurs.</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="game flip">
+      <figure>
+        <img src="screens/blackveil.jpg" alt="Raiders of Blackveil avec le détail des dégâts par compétence" width="1600" height="900" loading="lazy">
+        <figcaption>Le détail des dégâts, touche Alt maintenue</figcaption>
+      </figure>
+      <div>
+        <p class="pg-kicker">Raiders of Blackveil</p>
+        <h3>Blackveil DPS Meter</h3>
+        <p class="for">Pour savoir si ce nouvel atout valait le coup.</p>
+        <ul>
+          <li>Tes dégâts, ton DPS et tes soins, toujours sous les yeux.</li>
+          <li><kbd>Alt</kbd> pour le détail par compétence, sbire et altération (brûlure, poison…).</li>
+          <li>Le DPS sur les boss et ton meilleur combat, aussi sur l'écran de fin.</li>
+          <li>En multi, le classement de l'équipe.</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+
+  <section class="pg-section">
+    <p class="pg-kicker">Dans tous les jeux</p>
+    <h2>Rien à régler</h2>
+    <div class="pg-grid features">
+      <div class="pg-card"><h3><span class="bar"></span>Discret</h3><p>Il prend la place d'un élément du jeu au lieu de couvrir l'écran.</p></div>
+      <div class="pg-card"><h3><span class="bar"></span>Joue en multi</h3><p>Il marche même si tes amis ne l'ont pas installé.</p></div>
+      <div class="pg-card"><h3><span class="bar"></span>Sans triche</h3><p>Il affiche, c'est tout : le jeu reste exactement le même.</p></div>
+      <div class="pg-card"><h3><span class="bar"></span>Toujours à jour</h3><p>Les nouvelles versions s'installent toutes seules au lancement du jeu.</p></div>
+    </div>
+  </section>
+
+  <section class="pg-section" id="installer">
+    <p class="pg-kicker">Installer</p>
+    <h2>Deux clics, c'est réglé</h2>
+    <p class="pg-section__lead">L'installeur trouve tes jeux Steam tout seul et installe ce qu'il faut.</p>
+    <div class="pg-grid pg-steps">
+      <div class="pg-card"><h3>Télécharge</h3><p><a href="https://github.com/Ghermin/dream-dps-meter/releases/download/installer/Installer-DPS-Meters.exe">L'installeur</a>, un petit fichier à ouvrir une fois le jeu fermé.</p></div>
+      <div class="pg-card"><h3>Choisis tes jeux</h3><p>Coche les jeux voulus, puis clique sur Installer.</p></div>
+      <div class="pg-card"><h3>Joue</h3><p>Dans Shape of Dreams, active-le une fois dans le menu Mods. Dans Raiders of Blackveil, il est déjà là.</p></div>
+    </div>
+    <p class="pg-note">Si Windows affiche « Windows a protégé votre ordinateur », clique sur <strong>Informations complémentaires</strong> puis <strong>Exécuter quand même</strong> : l'installeur n'est pas signé, mais son code est sur GitHub.</p>
+  </section>
+
+  <section class="pg-end">
+    <img src="icon-192.png" alt="" width="56" height="56">
+    <h2>D'autres jeux arriveront avec le temps.</h2>
+    <div class="pg-cta">
+      <a class="pg-btn pg-btn--primary" href="https://github.com/Ghermin/dream-dps-meter/releases/download/installer/Installer-DPS-Meters.exe">Télécharger l'installeur</a>
+    </div>
+  </section>
+</main>
+
+<footer class="pg-foot">
+  <div class="pg-foot__in">
+    <p><a href="https://github.com/Ghermin/dream-dps-meter">Code source</a> · <a href="https://github.com/Ghermin/dream-dps-meter/issues">Signaler un problème</a> · Projet de fan, sans lien avec les studios des jeux</p>
+    <p>Un projet du <a href="https://ghermin.github.io/">Bored Dev Playground</a>, par <a href="https://github.com/Ghermin">Ghermin</a></p>
+  </div>
+</footer>
+</body>
+</html>

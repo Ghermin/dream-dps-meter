@@ -2,11 +2,5 @@ bin/
 obj/
 *.download
 ui_dump.txt
-# The built DLL at the root is a local build artefact; the published one lives in release/
-/DreamDpsMeter.dll
-/DreamDpsMeter.pdb
-
-# Written by the updater once the about/ files are synced
-about/.synced
-# Written by the updater right before applying a new version
-about/.updated
+installer/publish/
+.claude/

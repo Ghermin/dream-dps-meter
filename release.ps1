@@ -3,29 +3,33 @@
 #   .\release.ps1 1.2.0                -> Dream DPS Meter, version choisie
 #   .\release.ps1 -Mod blackveil       -> Blackveil DPS Meter (Raiders of Blackveil), dernier chiffre +1
 #   .\release.ps1 -Mod blackveil 0.2.0 -> Blackveil DPS Meter, version choisie
+#   -NoPush                            -> compile et prépare les fichiers, sans commit ni push
 # - met à jour le numéro de version (code, et pour Shape of Dreams metadata.json + description du mod)
 # - compile en Release (trouve le jeu tout seul)
-# - copie la DLL dans release\ (ou blackveil\release\) et écrit version.txt (lus par l'installeur et la mise à jour auto)
+# - copie la DLL dans <dossier du jeu>\release\ et écrit version.txt (lus par l'installeur et la mise à jour auto)
+#   Shape of Dreams : aussi dans release\ à la racine, lu par les versions 1.1.6 et plus anciennes
 # - commit, tag et push sur GitHub : les joueurs la reçoivent au prochain lancement du jeu
+# Un nouveau jeu : son dossier (comme blackveil\), une entrée ci-dessous et une entrée dans games.json.
 param(
     [Parameter(Position = 0)][string]$Version,
-    [ValidateSet('dreams', 'blackveil')][string]$Mod = 'dreams'
+    [ValidateSet('dreams', 'blackveil')][string]$Mod = 'dreams',
+    [switch]$NoPush
 )
 
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-if ($Mod -eq 'dreams') {
-    $cfg = @{
-        Name = 'Dream DPS Meter'; Dir = '.'; Project = 'DreamDpsMeter.csproj'; Dll = 'DreamDpsMeter.dll'
+$mods = @{
+    dreams = @{
+        Name = 'Dream DPS Meter'; Dir = 'shape-of-dreams'; Project = 'shape-of-dreams\DreamDpsMeter.csproj'; Dll = 'DreamDpsMeter.dll'
         Game = 'Shape of Dreams'; Probe = 'Shape of Dreams_Data\Managed\Assembly-CSharp.dll'; TagPrefix = 'v'
     }
-} else {
-    $cfg = @{
+    blackveil = @{
         Name = 'Blackveil DPS Meter'; Dir = 'blackveil'; Project = 'blackveil\BlackveilDpsMeter.csproj'; Dll = 'BlackveilDpsMeter.dll'
         Game = 'Raiders of Blackveil'; Probe = 'BepInEx\core\BepInEx.dll'; TagPrefix = 'blackveil-v'
     }
 }
+$cfg = $mods[$Mod]
 $releaseDir = Join-Path $cfg.Dir 'release'
 $versionTxt = Join-Path $releaseDir 'version.txt'
 
@@ -43,7 +47,6 @@ if (git tag --list $tag) { throw "Le tag $tag existe déjà." }
 # ---- dossier du jeu (pour les DLL référencées)
 function Find-GameDir {
     $candidates = @()
-    if ($Mod -eq 'dreams') { $candidates += (Join-Path $PSScriptRoot '..\..') }
     $steam = @(
         (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath,
         "${env:ProgramFiles(x86)}\Steam",
@@ -61,7 +64,7 @@ function Find-GameDir {
     foreach ($c in $candidates) {
         if (Test-Path (Join-Path $c $cfg.Probe)) { return (Resolve-Path $c).Path }
     }
-    throw "$($cfg.Game) introuvable (ou BepInEx absent pour Raiders of Blackveil : lance d'abord install.ps1)."
+    throw "$($cfg.Game) introuvable (ou BepInEx absent pour Raiders of Blackveil : lance d'abord l'installeur)."
 }
 $gameDir = Find-GameDir
 Write-Host "Jeu : $gameDir"
@@ -70,8 +73,9 @@ Write-Host "$($cfg.Name) : $current -> $Version" -ForegroundColor Cyan
 $versionFile = Join-Path $cfg.Dir 'src\Version.cs'
 (Get-Content $versionFile -Raw) -replace 'Current = "[^"]*"', "Current = `"$Version`"" | Set-Content $versionFile -NoNewline
 if ($Mod -eq 'dreams') {
-    (Get-Content 'about\metadata.json' -Raw) -replace '"modVer":\s*"[^"]*"', "`"modVer`": `"$Version`"" | Set-Content 'about\metadata.json' -NoNewline
-    (Get-Content 'about\description.txt' -Raw) -replace '(?m)^Version \d+\.\d+\.\d+', "Version $Version" | Set-Content 'about\description.txt' -NoNewline
+    $about = Join-Path $cfg.Dir 'about'
+    (Get-Content "$about\metadata.json" -Raw) -replace '"modVer":\s*"[^"]*"', "`"modVer`": `"$Version`"" | Set-Content "$about\metadata.json" -NoNewline
+    (Get-Content "$about\description.txt" -Raw) -replace '(?m)^Version \d+\.\d+\.\d+', "Version $Version" | Set-Content "$about\description.txt" -NoNewline
 }
 
 dotnet build $cfg.Project -c Release "-p:GameDir=$gameDir" "-p:DeployToGame=false" | Out-Host
@@ -80,7 +84,16 @@ if ($LASTEXITCODE -ne 0) { throw "La compilation a échoué." }
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 Copy-Item (Join-Path $cfg.Dir "bin\Release\netstandard2.1\$($cfg.Dll)") (Join-Path $releaseDir $cfg.Dll) -Force
 Set-Content $versionTxt $Version -NoNewline
+if ($Mod -eq 'dreams') {
+    # Compatibilité : les versions 1.1.6 et plus anciennes cherchent leur mise à jour dans release\ à la racine.
+    Copy-Item (Join-Path $releaseDir $cfg.Dll) (Join-Path 'release' $cfg.Dll) -Force
+    Set-Content 'release\version.txt' $Version -NoNewline
+}
 
+if ($NoPush) {
+    Write-Host "$($cfg.Name) v$Version compilée, rien n'est commité (-NoPush)." -ForegroundColor Green
+    return
+}
 git add -A
 git commit -m "Release $($cfg.Name) v$Version"
 git tag $tag

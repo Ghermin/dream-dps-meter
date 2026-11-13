@@ -1,0 +1,50 @@
+{
+  "_doc": "Liste des DPS meters, lue par l'installeur (installer/) et install.ps1. Ajouter un jeu = ajouter une entrée ici, sans recompiler l'installeur. Chemins 'src' relatifs à la racine du dépôt (branche main), 'dst' relatifs à 'target' dans le dossier du jeu.",
+  "meters": [
+    {
+      "id": "dreams",
+      "name": "Dream DPS Meter",
+      "game": "Shape of Dreams",
+      "steamAppId": 2444750,
+      "exe": "Shape of Dreams.exe",
+      "process": "Shape of Dreams",
+      "loader": "none",
+      "target": "Mods\\DreamDpsMeter",
+      "version": "shape-of-dreams/release/version.txt",
+      "files": [
+        { "src": "shape-of-dreams/release/DreamDpsMeter.dll", "dst": "DreamDpsMeter.dll" },
+        { "src": "shape-of-dreams/about/metadata.json", "dst": "about\\metadata.json" },
+        { "src": "shape-of-dreams/about/description.txt", "dst": "about\\description.txt" },
+        { "src": "shape-of-dreams/about/icon.png", "dst": "about\\icon.png" },
+        { "src": "shape-of-dreams/about/preview.png", "dst": "about\\preview.png" }
+      ],
+      "tagline": "Dégâts par mémoire et essence, DPS du combat, récap de fin de run.",
+      "after": "Lance le jeu, menu « Mods » sur l'écran titre, puis active « Dream DPS Meter » (une seule fois)."
+    },
+    {
+      "id": "blackveil",
+      "name": "Blackveil DPS Meter",
+      "game": "Raiders of Blackveil",
+      "steamAppId": 3352240,
+      "exe": "RoB.exe",
+      "process": "RoB",
+      "loader": "bepinex5",
+      "target": "BepInEx\\plugins\\BlackveilDpsMeter",
+      "version": "blackveil/release/version.txt",
+      "files": [
+        { "src": "blackveil/release/BlackveilDpsMeter.dll", "dst": "BlackveilDpsMeter.dll" }
+      ],
+      "tagline": "Dégâts par compétence et altération, DPS boss, classement en multi.",
+      "after": "Rien d'autre à faire : il sera actif au prochain lancement du jeu."
+    }
+  ],
+  "loaders": {
+    "bepinex5": {
+      "name": "BepInEx 5",
+      "url": "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.6/BepInEx_win_x64_5.4.23.6.zip",
+      "present": ["BepInEx\\core\\BepInEx.dll", "winhttp.dll"],
+      "conflict": "BepInEx\\core\\BepInEx.Unity.Mono.dll",
+      "conflictMessage": "BepInEx 6 est déjà installé dans ce jeu (par un autre mod). Ce DPS meter a besoin de BepInEx 5 : retire le dossier BepInEx, winhttp.dll et doorstop_config.ini du dossier du jeu, puis relance l'installation."
+    }
+  }
+}

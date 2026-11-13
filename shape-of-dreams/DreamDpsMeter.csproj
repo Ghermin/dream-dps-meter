@@ -15,7 +15,8 @@
     <AssemblyFileVersion>1.0.0.0</AssemblyFileVersion>
     <AssemblyConfiguration>Debug</AssemblyConfiguration>
     
-    <GameDir>..\..</GameDir>
+    <!-- Dossier du jeu : surchargé par release.ps1 (-p:GameDir=...) -->
+    <GameDir Condition="'$(GameDir)'==''">C:\Program Files (x86)\Steam\steamapps\common\Shape of Dreams</GameDir>
     <GameManagedDir>$(GameDir)\Shape of Dreams_Data\Managed</GameManagedDir>
   </PropertyGroup>
 
@@ -32,6 +33,14 @@
     <DefineConstants>TRACE</DefineConstants>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <!-- DLL publiée : aucun chemin de la machine de compilation (pas de PDB, chemins sources neutres) -->
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <Deterministic>true</Deterministic>
+    <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
   </PropertyGroup>
 
   <ItemGroup>
@@ -285,12 +294,13 @@
       <Private>False</Private>
     </Reference>
   </ItemGroup>
-  <!-- The game loads DreamDpsMeter.dll from the mod root (see about/metadata.json); the updater replaces it. -->
-  <Target Name="CopyModDll" AfterTargets="Build">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)" />
+  <!-- Copie la DLL dans le mod installé (Mods\DreamDpsMeter, voir about/metadata.json) pour tester tout de suite.
+       release.ps1 passe -p:DeployToGame=false. -->
+  <Target Name="DeployMod" AfterTargets="Build" Condition="'$(DeployToGame)'!='false' And Exists('$(GameDir)\Mods')">
+    <MakeDir Directories="$(GameDir)\Mods\DreamDpsMeter" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\Mods\DreamDpsMeter" />
   </Target>
   <ItemGroup>
-    <Compile Remove="release\**;bin\**;obj\**;blackveil\**" />
-    <None Remove="blackveil\**" />
+    <Compile Remove="release\**;bin\**;obj\**;tools\**" />
   </ItemGroup>
 </Project>

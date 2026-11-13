@@ -1,22 +1,18 @@
-# DPS meters de Ghermin - installation en une commande :
+# DPS meters - installation en une commande (même chose que l'installeur, sans fenêtre) :
 #   irm https://raw.githubusercontent.com/Ghermin/dream-dps-meter/main/install.ps1 | iex
 #
-# Trouve les jeux dans les bibliothèques Steam et propose d'installer (ou mettre à jour), au choix :
-#   - Dream DPS Meter      pour Shape of Dreams     -> <jeu>\Mods\DreamDpsMeter
-#   - Blackveil DPS Meter  pour Raiders of Blackveil -> <jeu>\BepInEx\plugins\BlackveilDpsMeter (BepInEx 5 installé si besoin)
+# Lit games.json (la liste des DPS meters), trouve les jeux dans les bibliothèques Steam et propose
+# d'installer (ou mettre à jour) ceux qu'on veut.
 # Sans question : $env:DPS_METERS = 'dreams', 'blackveil' ou 'dreams,blackveil' avant la commande.
 # Les mises à jour suivantes se font toutes seules au lancement du jeu.
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $repo = 'https://raw.githubusercontent.com/Ghermin/dream-dps-meter/main'
-$bepinexUrl = 'https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.6/BepInEx_win_x64_5.4.23.6.zip'
 $bust = [DateTime]::UtcNow.Ticks
 
-$meters = @(
-    [pscustomobject]@{ Id = 'dreams';    Name = 'Dream DPS Meter';     Game = 'Shape of Dreams';      Exe = 'Shape of Dreams.exe' },
-    [pscustomobject]@{ Id = 'blackveil'; Name = 'Blackveil DPS Meter'; Game = 'Raiders of Blackveil'; Exe = 'RoB.exe' }
-)
+$manifest = Invoke-RestMethod -UseBasicParsing -Uri "$repo/games.json?t=$bust"
+$meters = @($manifest.meters)
 
 function Get-SteamLibraries {
     $roots = @()
@@ -45,73 +41,60 @@ function Get-SteamLibraries {
 function Find-Game($meter, $libraries) {
     foreach ($root in $libraries) {
         # [IO.Path] et non Join-Path : Join-Path échoue sur un lecteur qui n'existe pas (E:\SteamLibrary...)
-        $candidate = [IO.Path]::Combine($root, 'steamapps', 'common', $meter.Game)
-        if (Test-Path -LiteralPath ([IO.Path]::Combine($candidate, $meter.Exe))) { return $candidate }
+        $candidate = [IO.Path]::Combine($root, 'steamapps', 'common', $meter.game)
+        if (Test-Path -LiteralPath ([IO.Path]::Combine($candidate, $meter.exe))) { return $candidate }
     }
     return $null
 }
 
 function Save-File($url, $out) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $out) | Out-Null
     Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $out
 }
 
-function Install-Dreams($game) {
-    $target = Join-Path $game 'Mods\DreamDpsMeter'
-    New-Item -ItemType Directory -Force -Path (Join-Path $target 'about') | Out-Null
-    $files = @(
-        @{ src = 'release/DreamDpsMeter.dll'; dst = 'DreamDpsMeter.dll' },
-        @{ src = 'about/metadata.json';       dst = 'about\metadata.json' },
-        @{ src = 'about/description.txt';     dst = 'about\description.txt' },
-        @{ src = 'about/icon.png';            dst = 'about\icon.png' },
-        @{ src = 'about/preview.png';         dst = 'about\preview.png' }
-    )
-    foreach ($f in $files) { Save-File "$repo/$($f.src)?t=$bust" (Join-Path $target $f.dst) }
-    $version = (Invoke-WebRequest -UseBasicParsing -Uri "$repo/release/version.txt?t=$bust").Content.Trim()
-    Write-Host "  Installé : Dream DPS Meter v$version -> $target" -ForegroundColor Green
-    Write-Host '  Dernière étape (une seule fois) : lance le jeu, menu "Mods" sur l''écran titre,'
-    Write-Host '  active "Dream DPS Meter". Les mises à jour se feront ensuite toutes seules.'
+function Install-Loader($id, $game) {
+    $loader = $manifest.loaders.$id
+    if (-not $loader) { return $true }
+    if ($loader.conflict -and (Test-Path (Join-Path $game $loader.conflict))) {
+        Write-Host "  $($loader.conflictMessage)" -ForegroundColor Yellow
+        return $false
+    }
+    $missing = @($loader.present | Where-Object { -not (Test-Path (Join-Path $game $_)) })
+    if (-not $missing) { return $true }
+    Write-Host "  Installation de $($loader.name) (chargeur de mods)..."
+    $zip = Join-Path $env:TEMP "dps-loader-$bust.zip"
+    Save-File $loader.url $zip
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+    try {
+        foreach ($entry in $archive.Entries) {
+            if (-not $entry.Name) { continue }
+            $dst = Join-Path $game ($entry.FullName -replace '/', '\')
+            New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $dst, $true)
+        }
+    } finally {
+        $archive.Dispose()
+        Remove-Item $zip -Force -ErrorAction SilentlyContinue
+    }
+    return $true
 }
 
-function Install-Blackveil($game) {
-    if (Test-Path (Join-Path $game 'BepInEx\core\BepInEx.Unity.Mono.dll')) {
-        Write-Host '  BepInEx 6 est déjà installé dans ce jeu (par un autre mod).' -ForegroundColor Yellow
-        Write-Host '  Blackveil DPS Meter a besoin de BepInEx 5 : retire le dossier BepInEx, winhttp.dll et' -ForegroundColor Yellow
-        Write-Host '  doorstop_config.ini du dossier du jeu, puis relance cette commande.' -ForegroundColor Yellow
+function Install-Meter($m, $game) {
+    if (Get-Process -Name $m.process -ErrorAction SilentlyContinue) {
+        Write-Host "  $($m.game) est ouvert : ferme le jeu puis relance l'installation." -ForegroundColor Yellow
         return
     }
-    if (-not (Test-Path (Join-Path $game 'BepInEx\core\BepInEx.dll')) -or -not (Test-Path (Join-Path $game 'winhttp.dll'))) {
-        Write-Host '  Installation de BepInEx 5 (chargeur de mods, depuis github.com/BepInEx)...'
-        $zip = Join-Path $env:TEMP "BepInEx_$bust.zip"
-        Save-File $bepinexUrl $zip
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
-        try {
-            foreach ($entry in $archive.Entries) {
-                if (-not $entry.Name) { continue }
-                $dst = Join-Path $game ($entry.FullName -replace '/', '\')
-                New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
-                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $dst, $true)
-            }
-        } finally {
-            $archive.Dispose()
-            Remove-Item $zip -Force -ErrorAction SilentlyContinue
-        }
-    }
-    $target = Join-Path $game 'BepInEx\plugins\BlackveilDpsMeter'
-    New-Item -ItemType Directory -Force -Path $target | Out-Null
-    $dll = Join-Path $target 'BlackveilDpsMeter.dll'
-    try {
-        Save-File "$repo/blackveil/release/BlackveilDpsMeter.dll?t=$bust" $dll
-    } catch {
-        throw "Impossible d'écrire $dll (le jeu est peut-être ouvert : ferme-le et relance la commande)."
-    }
-    $version = (Invoke-WebRequest -UseBasicParsing -Uri "$repo/blackveil/release/version.txt?t=$bust").Content.Trim()
-    Write-Host "  Installé : Blackveil DPS Meter v$version -> $target" -ForegroundColor Green
-    Write-Host '  Rien d''autre à faire : il sera actif au prochain lancement du jeu (mises à jour automatiques).'
+    if (-not (Install-Loader $m.loader $game)) { return }
+    $target = Join-Path $game $m.target
+    foreach ($f in $m.files) { Save-File "$repo/$($f.src)?t=$bust" (Join-Path $target $f.dst) }
+    $version = (Invoke-WebRequest -UseBasicParsing -Uri "$repo/$($m.version)?t=$bust").Content.Trim()
+    Write-Host "  Installé : $($m.name) v$version" -ForegroundColor Green
+    Write-Host "  $($m.after)"
 }
 
 Write-Host ''
-Write-Host '  DPS meters de Det''s - installation' -ForegroundColor Cyan
+Write-Host '  DPS meters - installation' -ForegroundColor Cyan
 Write-Host ''
 
 $libraries = Get-SteamLibraries
@@ -121,39 +104,43 @@ foreach ($m in $meters) { $m | Add-Member -NotePropertyName Path -NotePropertyVa
 $chosen = @()
 if ($env:DPS_METERS) {
     $wanted = $env:DPS_METERS.ToLower() -split '[,; ]+' | Where-Object { $_ }
-    $chosen = @($meters | Where-Object { $wanted -contains $_.Id })
-    if (-not $chosen) { throw "DPS_METERS='$env:DPS_METERS' : valeurs possibles 'dreams' et/ou 'blackveil'." }
+    $chosen = @($meters | Where-Object { $wanted -contains $_.id })
+    if (-not $chosen) { throw "DPS_METERS='$env:DPS_METERS' : valeurs possibles $(($meters | ForEach-Object { "'$($_.id)'" }) -join ', ')." }
 } else {
     Write-Host '  Quel(s) DPS meter(s) installer ?'
     for ($i = 0; $i -lt $meters.Count; $i++) {
         $m = $meters[$i]
-        $where = if ($m.Path) { "trouvé : $($m.Path)" } else { 'jeu non trouvé, chemin demandé ensuite' }
-        Write-Host ("   [{0}] {1,-20} pour {2,-21} ({3})" -f ($i + 1), $m.Name, $m.Game, $where)
+        $where = if ($m.Path) { 'jeu trouvé' } else { 'jeu non trouvé, chemin demandé ensuite' }
+        Write-Host ("   [{0}] {1,-20} pour {2,-21} ({3})" -f ($i + 1), $m.name, $m.game, $where)
     }
-    Write-Host ("   [{0}] Les deux" -f ($meters.Count + 1))
+    $all = $meters.Count + 1
+    Write-Host ("   [{0}] Tous" -f $all)
     $found = @($meters | Where-Object { $_.Path })
-    $default = if ($found.Count -eq 1) { [string]([array]::IndexOf($meters, $found[0]) + 1) } else { [string]($meters.Count + 1) }
-    $answer = Read-Host "  Ton choix (1, 2, 3 ou 1,2) [Entrée = $default]"
+    $default = if ($found.Count -eq 1) { [string]([array]::IndexOf($meters, $found[0]) + 1) } else { [string]$all }
+    $answer = Read-Host "  Ton choix (ex : 1, ou 1,2) [Entrée = $default]"
     if (-not $answer) { $answer = $default }
     foreach ($n in ($answer -split '[,; ]+' | Where-Object { $_ })) {
         $k = 0
-        if (-not [int]::TryParse($n, [ref]$k) -or $k -lt 1 -or $k -gt $meters.Count + 1) { throw "Choix invalide : '$n'." }
-        if ($k -eq $meters.Count + 1) { $chosen += $meters } else { $chosen += $meters[$k - 1] }
+        if (-not [int]::TryParse($n, [ref]$k) -or $k -lt 1 -or $k -gt $all) { throw "Choix invalide : '$n'." }
+        if ($k -eq $all) { $chosen += $meters } else { $chosen += $meters[$k - 1] }
     }
     $seen = @{}
-    $chosen = @($chosen | Where-Object { if ($seen[$_.Id]) { $false } else { $seen[$_.Id] = $true; $true } })
+    $chosen = @($chosen | Where-Object { if ($seen[$_.id]) { $false } else { $seen[$_.id] = $true; $true } })
 }
 
 foreach ($m in $chosen) {
     Write-Host ''
-    Write-Host "  == $($m.Name) ($($m.Game))" -ForegroundColor Cyan
+    Write-Host "  == $($m.name) ($($m.game))" -ForegroundColor Cyan
     $game = $m.Path
     if (-not $game) {
-        $game = Read-Host "  Dossier de $($m.Game) introuvable. Colle son chemin (ex: D:\SteamLibrary\steamapps\common\$($m.Game)), ou Entrée pour passer"
+        $game = Read-Host "  Dossier de $($m.game) introuvable. Colle son chemin (ex : D:\SteamLibrary\steamapps\common\$($m.game)), ou Entrée pour passer"
         if (-not $game) { Write-Host '  Ignoré.'; continue }
-        if (-not (Test-Path (Join-Path $game $m.Exe))) { Write-Host "  $($m.Exe) introuvable dans '$game', ignoré." -ForegroundColor Yellow; continue }
+        if (-not (Test-Path (Join-Path $game $m.exe))) { Write-Host "  $($m.exe) introuvable dans ce dossier, ignoré." -ForegroundColor Yellow; continue }
     }
-    Write-Host "  Jeu : $game"
-    if ($m.Id -eq 'dreams') { Install-Dreams $game } else { Install-Blackveil $game }
+    try {
+        Install-Meter $m $game
+    } catch {
+        Write-Host "  Échec : $($_.Exception.Message)" -ForegroundColor Red
+    }
 }
 Write-Host ''
