@@ -57,6 +57,29 @@
   @media (max-width: 860px) { .game, .game.flip { grid-template-columns: 1fr; } .game.flip figure { order: 0; } }
   .game figure { margin: 0; }
   .game figure img { display: block; border-radius: 14px; border: 1px solid var(--pg-line); box-shadow: var(--shot-shadow); }
+
+  /* Captures : clic pour agrandir (sans JavaScript, le lien ouvre l'image) */
+  .zoom { position: relative; display: block; border-radius: 14px; cursor: zoom-in; }
+  .zoom:focus-visible { outline: 3px solid var(--pg-accent); outline-offset: 3px; }
+  .zoom::after {
+    content: "⤢ Agrandir"; position: absolute; right: 12px; bottom: 12px; padding: 5px 10px; border-radius: 999px;
+    font: 500 12px/1 var(--pg-mono); color: #fff; background: rgba(10, 10, 14, .72);
+    opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; pointer-events: none;
+  }
+  .zoom:hover::after, .zoom:focus-visible::after { opacity: 1; transform: none; }
+  @media (hover: none) { .zoom::after { opacity: 1; transform: none; } }
+  .lightbox {
+    width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; padding: 16px; border: 0;
+    background: transparent; display: grid; place-items: center; cursor: zoom-out;
+  }
+  .lightbox:not([open]) { display: none; }
+  .lightbox::backdrop { background: rgba(6, 6, 9, .9); }
+  .lightbox img { max-width: 100%; max-height: calc(100vh - 32px); border-radius: 12px; box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .8); }
+  .lightbox button {
+    position: fixed; top: 14px; right: 14px; width: 44px; height: 44px; border: 0; border-radius: 50%;
+    font: 400 26px/1 system-ui, sans-serif; color: #fff; background: rgba(255, 255, 255, .14); cursor: pointer;
+  }
+  .lightbox button:hover, .lightbox button:focus-visible { background: rgba(255, 255, 255, .26); }
   .game figcaption { margin-top: 10px; font: 12.5px/1.5 var(--pg-mono); color: var(--pg-muted); }
   .game h3 { margin: 6px 0 4px; font-size: clamp(26px, 3.4vw, 34px); line-height: 1.1; letter-spacing: -0.02em; }
   .game .for { margin: 0 0 18px; color: var(--pg-muted); }
@@ -123,7 +146,7 @@
 
     <article class="game">
       <figure>
-        <img src="screens/shape-of-dreams.jpg" alt="Shape of Dreams en pleine partie : le panneau des dégâts au-dessus des caractéristiques et la part de chaque compétence" width="1920" height="802" loading="lazy">
+        <a class="zoom" href="screens/shape-of-dreams.jpg" aria-label="Agrandir la capture de Shape of Dreams"><img src="screens/shape-of-dreams.jpg" alt="Shape of Dreams en pleine partie : le jeu à gauche, le panneau des dégâts agrandi à droite" width="1920" height="802" loading="lazy"></a>
         <figcaption>En pleine partie : tes dégâts par source et la part de chaque compétence</figcaption>
       </figure>
       <div>
@@ -141,7 +164,7 @@
 
     <article class="game flip">
       <figure>
-        <img src="screens/blackveil.jpg" alt="Raiders of Blackveil avec le détail des dégâts par compétence" width="1920" height="1080" loading="lazy">
+        <a class="zoom" href="screens/blackveil.jpg" aria-label="Agrandir la capture de Raiders of Blackveil"><img src="screens/blackveil.jpg" alt="Raiders of Blackveil : le jeu à gauche, le détail des dégâts par compétence agrandi à droite" width="1920" height="1080" loading="lazy"></a>
         <figcaption>Le détail des dégâts, touche Alt maintenue</figcaption>
       </figure>
       <div>
@@ -196,5 +219,31 @@
     <p>Un projet du <a href="https://ghermin.github.io/">Bored Dev Playground</a>, par <a href="https://github.com/Ghermin">Ghermin</a></p>
   </div>
 </footer>
+
+<dialog class="lightbox" aria-label="Capture agrandie">
+  <img alt="">
+  <button type="button" aria-label="Fermer">×</button>
+</dialog>
+<script>
+  // Clic sur une capture : elle s'ouvre en grand. Clic n'importe où ou Échap pour fermer.
+  (() => {
+    const box = document.querySelector('.lightbox');
+    if (!box || typeof box.showModal !== 'function') return; // vieux navigateur : le lien ouvre l'image
+    const big = box.querySelector('img');
+    let opener = null;
+    document.querySelectorAll('a.zoom').forEach((a) => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        opener = a;
+        big.src = a.href;
+        big.alt = a.querySelector('img').alt;
+        box.showModal();
+        box.querySelector('button').focus();
+      });
+    });
+    box.addEventListener('click', () => box.close());
+    box.addEventListener('close', () => { big.removeAttribute('src'); if (opener) opener.focus(); });
+  })();
+</script>
 </body>
 </html>
