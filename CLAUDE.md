@@ -40,7 +40,7 @@ dotnet build installer -c Release          # installer\bin\Release\net48\Install
 
 - Pseudo de jeu, prénom et nom d'utilisateur Windows ne doivent apparaître nulle part (code, DLL, captures, messages de commit). Auteur affiché : `Ghermin`. Identifiants : `ghermin.dreamdpsmeter`, `ghermin.blackveildpsmeter`.
 - Les builds Release n'embarquent ni PDB ni chemin local (`DebugType none`, `PathMap`) : garder ces réglages dans chaque `.csproj`.
-- Captures : flouter les noms de joueurs avant de les ajouter.
+- Captures (`docs/screens/`, `about/preview.png`, `about/icon.png`) : les regarder en entier avant de les ajouter. Retirer noms de joueurs (au-dessus des personnages, écran de fin, classement), overlays Steam / Discord, autres fenêtres et second écran ; recadrer, flouter fort, réenregistrer sans métadonnées (le script d'export en JPEG le fait). Capture en pleine partie de préférence, pas l'écran de fin.
 - Identité des commits : `Ghermin <Ghermin@users.noreply.github.com>` (configurée en local dans le dépôt).
 
 ## Bored Dev Playground
