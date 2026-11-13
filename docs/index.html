@@ -54,7 +54,12 @@
   .game + .game { margin-top: clamp(56px, 8vw, 88px); }
   .game.flip { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
   .game.flip figure { order: 2; }
-  @media (max-width: 860px) { .game, .game.flip { grid-template-columns: 1fr; } .game.flip figure { order: 0; } }
+  @media (max-width: 860px) {
+    /* Une colonne : l'image puis son texte, collés, et un trait net avant le jeu suivant */
+    .game, .game.flip { grid-template-columns: 1fr; gap: 18px; }
+    .game.flip figure { order: 0; }
+    .game + .game { margin-top: 48px; padding-top: 48px; border-top: 1px solid var(--pg-line); }
+  }
   .game figure { margin: 0; }
   .game figure img { display: block; border-radius: 14px; border: 1px solid var(--pg-line); box-shadow: var(--shot-shadow); }
 
