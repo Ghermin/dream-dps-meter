@@ -1,0 +1,7 @@
+# Lu par le plugin de mise à jour de Wilds DPS Meter (mh-wilds\updater). Généré par release.ps1.
+version 0.1.2
+file f349158199c211478302821056dc071980c55ca980633539f486e21600cf41a3 mh-wilds/release/wilds_dps_meter/core.lua reframework\autorun\wilds_dps_meter\core.lua
+file d108150bd824121cabb63ba585fa9e40c3f846a956530fe1e770f5104e870115 mh-wilds/release/wilds_dps_meter/options_menu.lua reframework\autorun\wilds_dps_meter\options_menu.lua
+file de224270c394a8847115b1295751fc42240b22ef1c9001820108a3f728fa6ef1 mh-wilds/release/wilds_dps_meter.lua reframework\autorun\wilds_dps_meter.lua
+file 9fdd4c4bbaef3eaef128162be6ee25dccf08624b86fd6ca1db6a19793071be22 mh-wilds/release/wilds_dps_meter_updater.dll reframework\plugins\wilds_dps_meter_updater.dll
+file 54a46c644c4eb6f128f99f7f08434918617b31b680522ed4acb57c9424372827 mh-wilds/release/version.txt reframework\autorun\wilds_dps_meter\version.txt

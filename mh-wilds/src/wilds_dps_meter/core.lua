@@ -7,7 +7,7 @@
 -- Affichage : un panneau dessiné à la main (pas de fenêtre ImGui visible) dans le style du HUD du jeu.
 -- Menu REFramework (Inser) : réglages, mode démo, journal des coups (reframework\data\wilds_dps_meter_debug.json).
 
-local VERSION = "0.1.1"
+local VERSION = "0.1.2"
 local CONFIG_FILE = "wilds_dps_meter.json"
 local DEBUG_FILE = "wilds_dps_meter_debug.json"
 local TITLE = "Wilds DPS Meter"
@@ -20,7 +20,9 @@ local cfg = {
     idle = 120,      -- secondes sans coup avant de clore le combat (monstre capturé, quête quittée…)
     scale = 1.0,     -- taille du panneau (en plus de l'adaptation à la résolution)
     opacity = 0.0,   -- opacité du fond (0 : texte seul, comme le HUD du jeu)
-    x = -1, y = -1,  -- coin bas gauche du panneau (-1 : en bas à droite, au-dessus de la barre d'objets)
+    anchor = 1,      -- coin de l'écran (ANCHORS) ; 1 : en bas à droite, au-dessus de la barre d'objets
+    offset_x = 0,    -- décalage depuis ce coin, en % de la largeur de l'écran (+ : vers la droite)
+    offset_y = 0,    -- décalage, en % de la hauteur de l'écran (+ : vers le bas)
     debug = false,   -- journal des coups
     demo = false,    -- mode démo actif (gardé d'un lancement à l'autre pour tester l'affichage)
 }
@@ -34,9 +36,20 @@ do
     end
 end
 
+cfg.anchor = math.max(1, math.min(6, math.floor(cfg.anchor)))
+
 local function save_cfg()
     pcall(json.dump_file, CONFIG_FILE, cfg)
 end
+
+-- Position du panneau : un coin de l'écran (menu Options) plus un décalage. Déplacé à la souris (menu REFramework
+-- ouvert), il garde sa place jusqu'à la fin de la session seulement : au lancement du jeu, il revient à ce réglage.
+local ANCHORS = {
+    { h = "right", v = "bottom" }, { h = "left", v = "bottom" },
+    { h = "right", v = "top" }, { h = "left", v = "top" },
+    { h = "right", v = "middle" }, { h = "left", v = "middle" },
+}
+local drag_x, drag_y = nil, nil -- coin bas gauche après un déplacement à la souris (session en cours)
 
 -- ---------------------------------------------------------------- outils
 
@@ -1005,9 +1018,12 @@ if cfg.demo then start_demo() end
 local okm, options_menu = pcall(require, "wilds_dps_meter.options_menu")
 if not okm then log.error("[Wilds DPS Meter] menu Options : " .. tostring(options_menu)); options_menu = nil end
 
-local OPT = { show = 398, menus = 397, size = 396, background = 395, demo = 394 }
+local OPT = { show = 398, menus = 397, size = 396, background = 395, demo = 394, anchor = 393, offset_x = 392, offset_y = 391 }
 local SIZES = { 0.8, 1.0, 1.25, 1.5 }
 local BACKGROUNDS = { 0.0, 0.3, 0.55, 0.8 }
+local OFFSETS = { -20, -15, -10, -5, 0, 5, 10, 15, 20 } -- % de l'écran
+local OFFSET_LABELS = {}
+for i, v in ipairs(OFFSETS) do OFFSET_LABELS[i] = v == 0 and "0" or string.format("%+d %%", v) end
 
 local function nearest(list, v)
     local best, bi = math.huge, 1
@@ -1024,6 +1040,9 @@ local function option_texts(fr)
             { id = OPT.menus, title = "Dans les menus du jeu", help = "Masquer le panneau quand un menu du jeu est ouvert (menu Start, carte…).", choices = { "Masquer", "Afficher" }, default = 0 },
             { id = OPT.size, title = "Taille", help = "Taille du panneau des dégâts.", choices = { "Petite", "Normale", "Grande", "Très grande" }, default = 1 },
             { id = OPT.background, title = "Fond", help = "Fond sombre derrière le panneau, pour la lisibilité.", choices = { "Aucun", "Léger", "Moyen", "Fort" }, default = 0 },
+            { id = OPT.anchor, title = "Position", help = "Coin de l'écran où placer le panneau.", choices = { "En bas à droite", "En bas à gauche", "En haut à droite", "En haut à gauche", "Au milieu à droite", "Au milieu à gauche" }, default = 0 },
+            { id = OPT.offset_x, title = "Décalage horizontal", help = "Décale le panneau vers la gauche (−) ou vers la droite (+), en % de l'écran.", choices = OFFSET_LABELS, default = 4 },
+            { id = OPT.offset_y, title = "Décalage vertical", help = "Décale le panneau vers le haut (−) ou vers le bas (+), en % de l'écran.", choices = OFFSET_LABELS, default = 4 },
             { id = OPT.demo, title = "Mode démo", help = "Afficher des dégâts fictifs pour voir le panneau sans combat.", choices = { "Désactivé", "Activé" }, default = 0 },
         }
     end
@@ -1032,6 +1051,9 @@ local function option_texts(fr)
         { id = OPT.menus, title = "In game menus", help = "Hide the panel while a game menu is open (Start menu, map…).", choices = { "Hide", "Show" }, default = 0 },
         { id = OPT.size, title = "Size", help = "Size of the damage panel.", choices = { "Small", "Normal", "Large", "Very large" }, default = 1 },
         { id = OPT.background, title = "Background", help = "Dark background behind the panel, for readability.", choices = { "None", "Light", "Medium", "Strong" }, default = 0 },
+        { id = OPT.anchor, title = "Position", help = "Screen corner where the panel sits.", choices = { "Bottom right", "Bottom left", "Top right", "Top left", "Middle right", "Middle left" }, default = 0 },
+        { id = OPT.offset_x, title = "Horizontal offset", help = "Move the panel left (−) or right (+), in % of the screen.", choices = OFFSET_LABELS, default = 4 },
+        { id = OPT.offset_y, title = "Vertical offset", help = "Move the panel up (−) or down (+), in % of the screen.", choices = OFFSET_LABELS, default = 4 },
         { id = OPT.demo, title = "Demo mode", help = "Show fake damage to preview the panel without a fight.", choices = { "Off", "On" }, default = 0 },
     }
 end
@@ -1059,7 +1081,8 @@ local function sync_options(t)
         local seed = {
             [OPT.show] = cfg.show and 0 or 1, [OPT.menus] = cfg.hide_menus and 0 or 1,
             [OPT.size] = nearest(SIZES, cfg.scale) - 1, [OPT.background] = nearest(BACKGROUNDS, cfg.opacity) - 1,
-            [OPT.demo] = cfg.demo and 1 or 0,
+            [OPT.demo] = cfg.demo and 1 or 0, [OPT.anchor] = cfg.anchor - 1,
+            [OPT.offset_x] = nearest(OFFSETS, cfg.offset_x) - 1, [OPT.offset_y] = nearest(OFFSETS, cfg.offset_y) - 1,
         }
         for id, v in pairs(seed) do
             if not options_menu.is_saved(id) then options_menu.set(id, v) end
@@ -1084,6 +1107,14 @@ local function sync_options(t)
     v = options_menu.get(OPT.menus); if v then apply("hide_menus", v == 0) end
     v = options_menu.get(OPT.size); if v then apply("scale", SIZES[v + 1]) end
     v = options_menu.get(OPT.background); if v then apply("opacity", BACKGROUNDS[v + 1]) end
+    -- position changée dans le menu : elle remplace un déplacement à la souris
+    local before = changed
+    changed = false
+    v = options_menu.get(OPT.anchor); if v and ANCHORS[v + 1] then apply("anchor", v + 1) end
+    v = options_menu.get(OPT.offset_x); if v then apply("offset_x", OFFSETS[v + 1]) end
+    v = options_menu.get(OPT.offset_y); if v then apply("offset_y", OFFSETS[v + 1]) end
+    if changed then drag_x, drag_y = nil, nil end
+    changed = changed or before
     v = options_menu.get(OPT.demo)
     if v then
         local want = v == 1
@@ -1115,11 +1146,19 @@ re.on_frame(function()
     if fight then n = #fight.order end
     local w, h = W * S, layout_height() * S
 
-    -- Le panneau est accroché par son bord bas (cfg.x, cfg.y = coin bas gauche) : il grandit vers le haut quand des
-    -- joueurs s'ajoutent. Par défaut : en bas à droite, au-dessus de la barre d'objets.
-    local ax, ay = cfg.x, cfg.y
-    if ax < 0 or ay < 0 then ax, ay = display.x - (W + 40) * S, display.y * 0.85 end
-    -- toujours dans l'écran (position enregistrée en pixels : la résolution a pu changer depuis)
+    -- (ax, ay) = coin bas gauche. En bas, le panneau grandit vers le haut quand des joueurs s'ajoutent ; en haut, vers
+    -- le bas ; au milieu, des deux côtés. Par défaut : en bas à droite, au-dessus de la barre d'objets.
+    local ax, ay = drag_x, drag_y
+    if not ax then
+        local a = ANCHORS[cfg.anchor] or ANCHORS[1]
+        ax = a.h == "left" and 40 * S or display.x - (W + 40) * S
+        if a.v == "top" then ay = display.y * 0.12 + h
+        elseif a.v == "middle" then ay = (display.y + h) / 2
+        else ay = display.y * 0.85 end
+        ax = ax + cfg.offset_x / 100 * display.x
+        ay = ay + cfg.offset_y / 100 * display.y
+    end
+    -- toujours dans l'écran
     ax = math.max(0, math.min(ax, display.x - w - 8 * S))
     ay = math.max(h + 8 * S, math.min(ay, display.y))
     local want_x, want_y = ax, ay - h
@@ -1148,23 +1187,43 @@ re.on_frame(function()
     imgui.end_window()
     imgui.pop_style_var(2)
 
-    -- position déplacée à la souris (menu REFramework ouvert) : mémorisée (bord bas) une fois le bouton relâché
+    -- position déplacée à la souris (menu REFramework ouvert) : gardée (bord bas) jusqu'à la fin de la session
     if dragging or math.abs(p.x - want_x) > 0.5 or math.abs(p.y - want_y) > 0.5 then
         dragging = imgui.is_mouse_down(0)
-        if not dragging then
-            cfg.x, cfg.y = p.x, p.y + h
-            save_cfg()
-        end
+        if not dragging then drag_x, drag_y = p.x, p.y + h end
     end
 end)
 
 -- ---------------------------------------------------------------- menu REFramework (touche Inser)
 
+-- Mise à jour auto : faite au lancement du jeu par le plugin reframework\plugins\wilds_dps_meter_updater.dll, qui écrit
+-- son résultat dans reframework\data\wilds_dps_meter_update.txt (absent : plugin pas installé).
+local update_status, update_next = nil, 0
+
+local function read_update_status()
+    local s
+    if fs and fs.read then s = select(2, pcall(fs.read, "wilds_dps_meter_update.txt")) end
+    if type(s) ~= "string" then
+        local ok, f = pcall(io.open, "wilds_dps_meter_update.txt", "r")
+        if ok and f then s = f:read("*a"); f:close() end
+    end
+    if type(s) ~= "string" or s == "" then return nil end
+    local last
+    for line in s:gmatch("[^\r\n]+") do last = line end
+    return last
+end
+
 re.on_draw_ui(function()
     if not imgui.tree_node(TITLE .. " v" .. VERSION) then return end
     local changed
+    if not update_status and now() >= update_next then
+        update_next = now() + 5
+        update_status = read_update_status()
+        if update_status then log.info("[Wilds DPS Meter] mise à jour auto : " .. update_status) end
+    end
+    imgui.text("Mise à jour auto : " .. (update_status or "plugin absent, relance l'installeur une fois"))
     if options_installed then
-        imgui.text("Réglages : menu Options du jeu > Paramètres de jeu > DPS meter.")
+        imgui.text("Réglages (dont la position) : menu Options du jeu, DPS meter.")
     else
         -- menu Options indisponible (jeu modifié par une mise à jour…) : réglages ici
         changed, cfg.show = imgui.checkbox("Afficher le panneau", cfg.show)
@@ -1175,18 +1234,25 @@ re.on_draw_ui(function()
         if changed then save_cfg() end
         changed, cfg.opacity = imgui.slider_float("Opacité du fond", cfg.opacity, 0.0, 1.0, "%.2f")
         if changed then save_cfg() end
+        changed, cfg.anchor = imgui.combo("Position", cfg.anchor, { "En bas à droite", "En bas à gauche", "En haut à droite",
+            "En haut à gauche", "Au milieu à droite", "Au milieu à gauche" })
+        if changed then drag_x, drag_y = nil, nil; save_cfg() end
+        changed, cfg.offset_x = imgui.slider_int("Décalage horizontal (%)", cfg.offset_x, -40, 40)
+        if changed then drag_x, drag_y = nil, nil; save_cfg() end
+        changed, cfg.offset_y = imgui.slider_int("Décalage vertical (%)", cfg.offset_y, -40, 40)
+        if changed then drag_x, drag_y = nil, nil; save_cfg() end
         if fight and fight.demo then
             if imgui.button("Arrêter la démo") then fight = nil; cfg.demo = false; save_cfg() end
         elseif imgui.button("Démo") then
             start_demo(); cfg.demo = true; save_cfg()
         end
     end
-    imgui.text("Menu ouvert : fais glisser le panneau pour le déplacer.")
+    imgui.text("Menu ouvert : fais glisser le panneau pour le déplacer (jusqu'à la fin de la session).")
     changed, cfg.idle = imgui.slider_int("Fin du combat après (s)", cfg.idle, 5, 120)
     if changed then save_cfg() end
     if imgui.button("Remettre à zéro") then fight = nil end
     imgui.same_line()
-    if imgui.button("Position par défaut") then cfg.x, cfg.y = -1, -1; save_cfg() end
+    if imgui.button("Position des réglages") then drag_x, drag_y = nil, nil end
 
     changed, cfg.debug = imgui.checkbox("Journal des coups (diagnostic)", cfg.debug)
     if changed then save_cfg() end

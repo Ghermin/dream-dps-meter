@@ -70,7 +70,11 @@ namespace DpsMetersInstaller
         public bool Found => GamePath != null;
         public string TargetDir => Path.Combine(GamePath, Target);
         public bool Installed => Found && Files.Count > 0 && File.Exists(Path.Combine(TargetDir, Files[0].Dst));
-        public bool Outdated => !AutoUpdate && Installed && Latest != null && InstalledVersion != Latest;
+        /// <summary>Mise à jour à proposer : version dépassée (DPS meter sans mise à jour auto), ou fichier manquant (ex : un
+        /// fichier ajouté depuis, comme le plugin de mise à jour de Wilds DPS Meter).</summary>
+        public bool Outdated => Installed && Latest != null && ((!AutoUpdate && InstalledVersion != Latest) || MissingFiles);
+        public bool MissingFiles => Files.Any(f => !File.Exists(Path.Combine(TargetDir, f.Dst)))
+            || Extra.Any(f => !File.Exists(Path.Combine(GamePath, f.Dst)));
 
         /// <summary>Relit la version installée et coche la carte s'il y a quelque chose à faire.</summary>
         public void Refresh()

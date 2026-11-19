@@ -4,8 +4,8 @@
 # Lit games.json (la liste des DPS meters), trouve les jeux dans les bibliothèques Steam et propose
 # d'installer (ou mettre à jour) ceux qu'on veut.
 # Sans question : $env:DPS_METERS = 'dreams', 'blackveil', 'wilds' ou 'dreams,blackveil' avant la commande.
-# Les mises à jour suivantes se font toutes seules au lancement du jeu, sauf pour les scripts Lua
-# (MH Wilds, "autoUpdate": false dans games.json) : relancer la commande.
+# Les mises à jour suivantes se font toutes seules au lancement du jeu (sauf un DPS meter marqué
+# "autoUpdate": false dans games.json : relancer la commande).
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12

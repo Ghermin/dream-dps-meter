@@ -30,9 +30,9 @@ $mods = @{
         Game = 'Raiders of Blackveil'; Probe = 'BepInEx\core\BepInEx.dll'; TagPrefix = 'blackveil-v'
     }
     wilds = @{
-        # Script Lua (REFramework) : rien à compiler, src\ est copié dans release\. Pas de mise à jour auto
-        # (le Lua de REFramework n'a pas accès au réseau) : les joueurs relancent l'installeur.
-        Name = 'Wilds DPS Meter'; Dir = 'mh-wilds'; Lua = $true; VersionFile = 'mh-wilds\src\wilds_dps_meter\core.lua'; TagPrefix = 'wilds-v'
+        # Script Lua (REFramework) : rien à compiler, src\ est copié dans release\. Le Lua de REFramework n'a pas accès
+        # au réseau : la mise à jour auto est faite par un plugin REFramework (mh-wilds\updater), qui lit release\update.txt.
+        Name = 'Wilds DPS Meter'; Dir = 'mh-wilds'; Lua = $true; Updater = $true; VersionFile = 'mh-wilds\src\wilds_dps_meter\core.lua'; TagPrefix = 'wilds-v'
     }
 }
 $cfg = $mods[$Mod]
@@ -57,6 +57,29 @@ if ($cfg.Lua) {
     New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
     Copy-Item (Join-Path $cfg.Dir 'src\*') $releaseDir -Recurse -Force
     Set-Content $versionTxt $Version -NoNewline
+    if ($cfg.Updater) {
+        # plugin de mise à jour (DLL) : compilé une fois par mh-wilds\updater\build.ps1, recompilé seulement s'il manque
+        $dll = Join-Path $cfg.Dir 'updater\bin\wilds_dps_meter_updater.dll'
+        if (-not (Test-Path $dll)) { & (Join-Path $cfg.Dir 'updater\build.ps1') }
+        Copy-Item $dll $releaseDir -Force
+        # Textes en LF, comme Git les stocke (core.autocrlf) : le SHA-256 calculé ici est celui du fichier servi par GitHub.
+        Get-ChildItem $releaseDir -Recurse -File -Include *.lua, *.txt | ForEach-Object {
+            $bytes = [IO.File]::ReadAllBytes($_.FullName)
+            $text = [Text.Encoding]::UTF8.GetString($bytes) -replace "`r`n", "`n"
+            [IO.File]::WriteAllBytes($_.FullName, [Text.UTF8Encoding]::new($false).GetBytes($text))
+        }
+        # update.txt : version publiée et fichiers à remplacer (dossier du jeu), lus par le plugin. version.txt en dernier.
+        $meter = (Get-Content games.json -Raw | ConvertFrom-Json).meters | Where-Object { $_.id -eq $Mod }
+        $entries = @($meter.files | ForEach-Object { @{ src = $_.src; dst = Join-Path $meter.target $_.dst } }) +
+            @($meter.extra | Where-Object { $_ } | ForEach-Object { @{ src = $_.src; dst = $_.dst } })
+        $entries = @($entries | Sort-Object { $_.dst -like '*\version.txt' })
+        $lines = @('# Lu par le plugin de mise à jour de Wilds DPS Meter (mh-wilds\updater). Généré par release.ps1.', "version $Version")
+        foreach ($e in $entries) {
+            $hash = (Get-FileHash (Join-Path $PSScriptRoot $e.src) -Algorithm SHA256).Hash.ToLower()
+            $lines += "file $hash $($e.src) $($e.dst)"
+        }
+        [IO.File]::WriteAllText((Join-Path $PSScriptRoot "$releaseDir\update.txt"), ($lines -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+    }
     if ($NoPush) {
         Write-Host "$($cfg.Name) v$Version préparée, rien n'est commité (-NoPush)." -ForegroundColor Green
         return
@@ -66,7 +89,7 @@ if ($cfg.Lua) {
     git tag $tag
     git push origin main --tags
     if ($LASTEXITCODE -ne 0) { throw "Le push a échoué." }
-    Write-Host "$($cfg.Name) v$Version publiée. Les joueurs la reçoivent en relançant l'installeur." -ForegroundColor Green
+    Write-Host "$($cfg.Name) v$Version publiée. Les joueurs la recevront au prochain lancement du jeu (plugin de mise à jour)." -ForegroundColor Green
     return
 }
 

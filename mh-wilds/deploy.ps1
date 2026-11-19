@@ -21,3 +21,11 @@ New-Item -ItemType Directory -Force -Path (Join-Path $autorun 'wilds_dps_meter')
 Copy-Item (Join-Path $PSScriptRoot 'src\wilds_dps_meter.lua') $autorun -Force
 Copy-Item (Join-Path $PSScriptRoot 'src\wilds_dps_meter\*') (Join-Path $autorun 'wilds_dps_meter') -Recurse -Force
 Write-Host "Copié dans $autorun" -ForegroundColor Green
+# plugin de mise à jour (si compilé : updater\build.ps1) ; jeu fermé seulement (DLL chargée sinon)
+$dll = Join-Path $PSScriptRoot 'updater\bin\wilds_dps_meter_updater.dll'
+if (Test-Path $dll) {
+    $plugins = Join-Path $GameDir 'reframework\plugins'
+    New-Item -ItemType Directory -Force -Path $plugins | Out-Null
+    try { Copy-Item $dll $plugins -Force; Write-Host "Plugin copié dans $plugins" -ForegroundColor Green }
+    catch { Write-Host "Plugin non copié (jeu ouvert ?)" -ForegroundColor Yellow }
+}
