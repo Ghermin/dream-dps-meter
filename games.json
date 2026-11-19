@@ -51,6 +51,7 @@
       "autoUpdate": false,
       "files": [
         { "src": "mh-wilds/release/wilds_dps_meter/core.lua", "dst": "core.lua" },
+        { "src": "mh-wilds/release/wilds_dps_meter/options_menu.lua", "dst": "options_menu.lua" },
         { "src": "mh-wilds/release/version.txt", "dst": "version.txt" }
       ],
       "extra": [

@@ -7,7 +7,7 @@
 -- Affichage : un panneau dessiné à la main (pas de fenêtre ImGui visible) dans le style du HUD du jeu.
 -- Menu REFramework (Inser) : réglages, mode démo, journal des coups (reframework\data\wilds_dps_meter_debug.json).
 
-local VERSION = "0.1.0"
+local VERSION = "0.1.1"
 local CONFIG_FILE = "wilds_dps_meter.json"
 local DEBUG_FILE = "wilds_dps_meter_debug.json"
 local TITLE = "Wilds DPS Meter"
@@ -998,9 +998,107 @@ end
 local draw_logged = nil
 if cfg.demo then start_demo() end
 
+-- ---------------------------------------------------------------- réglages dans le menu Options du jeu
+-- Options > Paramètres de jeu > section « DPS meter » (voir options_menu.lua). Le menu du jeu fait foi ; ses valeurs
+-- sont recopiées dans cfg (et le fichier de réglages). Si nos cases de sauvegarde sont vierges, on y met cfg.
+
+local okm, options_menu = pcall(require, "wilds_dps_meter.options_menu")
+if not okm then log.error("[Wilds DPS Meter] menu Options : " .. tostring(options_menu)); options_menu = nil end
+
+local OPT = { show = 398, menus = 397, size = 396, background = 395, demo = 394 }
+local SIZES = { 0.8, 1.0, 1.25, 1.5 }
+local BACKGROUNDS = { 0.0, 0.3, 0.55, 0.8 }
+
+local function nearest(list, v)
+    local best, bi = math.huge, 1
+    for i, x in ipairs(list) do
+        if math.abs(x - v) < best then best, bi = math.abs(x - v), i end
+    end
+    return bi
+end
+
+local function option_texts(fr)
+    if fr then
+        return "DPS meter", "Réglages du DPS meter (dégâts et altérations en combat).", {
+            { id = OPT.show, title = "Afficher le DPS meter", help = "Afficher le panneau des dégâts en combat.", choices = { "Oui", "Non" }, default = 0 },
+            { id = OPT.menus, title = "Dans les menus du jeu", help = "Masquer le panneau quand un menu du jeu est ouvert (menu Start, carte…).", choices = { "Masquer", "Afficher" }, default = 0 },
+            { id = OPT.size, title = "Taille", help = "Taille du panneau des dégâts.", choices = { "Petite", "Normale", "Grande", "Très grande" }, default = 1 },
+            { id = OPT.background, title = "Fond", help = "Fond sombre derrière le panneau, pour la lisibilité.", choices = { "Aucun", "Léger", "Moyen", "Fort" }, default = 0 },
+            { id = OPT.demo, title = "Mode démo", help = "Afficher des dégâts fictifs pour voir le panneau sans combat.", choices = { "Désactivé", "Activé" }, default = 0 },
+        }
+    end
+    return "DPS meter", "DPS meter settings (damage and status effects in combat).", {
+        { id = OPT.show, title = "Show DPS meter", help = "Show the damage panel in combat.", choices = { "Yes", "No" }, default = 0 },
+        { id = OPT.menus, title = "In game menus", help = "Hide the panel while a game menu is open (Start menu, map…).", choices = { "Hide", "Show" }, default = 0 },
+        { id = OPT.size, title = "Size", help = "Size of the damage panel.", choices = { "Small", "Normal", "Large", "Very large" }, default = 1 },
+        { id = OPT.background, title = "Background", help = "Dark background behind the panel, for readability.", choices = { "None", "Light", "Medium", "Strong" }, default = 0 },
+        { id = OPT.demo, title = "Demo mode", help = "Show fake damage to preview the panel without a fight.", choices = { "Off", "On" }, default = 0 },
+    }
+end
+
+local options_installed, options_next, options_read_next = false, 0, 0
+local options_fr, options_lang_next = nil, 0
+
+local function sync_options(t)
+    if not options_menu then return end
+    if not options_installed then
+        if t < options_next then return end
+        options_next = t + 1
+        options_fr = options_menu.is_french()
+        local title, help, defs = option_texts(options_fr)
+        local ok, res = pcall(options_menu.install, defs, title, help)
+        if not ok then
+            log.error("[Wilds DPS Meter] menu Options : " .. tostring(res))
+            options_menu = nil
+            return
+        end
+        if not res then return end -- données du jeu pas encore chargées
+        if res == "unavailable" then options_menu = nil return end -- réglages dans le menu REFramework
+        options_installed = true
+        -- cases vierges : on y met les réglages actuels du meter
+        local seed = {
+            [OPT.show] = cfg.show and 0 or 1, [OPT.menus] = cfg.hide_menus and 0 or 1,
+            [OPT.size] = nearest(SIZES, cfg.scale) - 1, [OPT.background] = nearest(BACKGROUNDS, cfg.opacity) - 1,
+            [OPT.demo] = cfg.demo and 1 or 0,
+        }
+        for id, v in pairs(seed) do
+            if not options_menu.is_saved(id) then options_menu.set(id, v) end
+        end
+    end
+    -- langue du jeu : connue seulement une fois les options du joueur chargées, et modifiable en jeu
+    if t >= options_lang_next then
+        options_lang_next = t + 1
+        local fr = options_menu.is_french()
+        if fr ~= options_fr then
+            options_fr = fr
+            options_menu.relabel(select(3, option_texts(fr)), option_texts(fr))
+        end
+    end
+    if t < options_read_next then return end
+    options_read_next = t + 0.25
+    local changed = false
+    local function apply(key, value)
+        if value ~= nil and cfg[key] ~= value then cfg[key] = value; changed = true end
+    end
+    local v = options_menu.get(OPT.show); if v then apply("show", v == 0) end
+    v = options_menu.get(OPT.menus); if v then apply("hide_menus", v == 0) end
+    v = options_menu.get(OPT.size); if v then apply("scale", SIZES[v + 1]) end
+    v = options_menu.get(OPT.background); if v then apply("opacity", BACKGROUNDS[v + 1]) end
+    v = options_menu.get(OPT.demo)
+    if v then
+        local want = v == 1
+        if want ~= cfg.demo then
+            cfg.demo = want; changed = true
+            if want then start_demo() elseif fight and fight.demo then fight = nil end
+        end
+    end
+    if changed then save_cfg() end
+end
+
 re.on_frame(function()
     frame_no = frame_no + 1
     local t = now()
+    pcall(sync_options, t)
     tick_demo(t)
     pcall(check_deaths)
     local gok, gerr = pcall(update_gauges, t)
@@ -1021,6 +1119,9 @@ re.on_frame(function()
     -- joueurs s'ajoutent. Par défaut : en bas à droite, au-dessus de la barre d'objets.
     local ax, ay = cfg.x, cfg.y
     if ax < 0 or ay < 0 then ax, ay = display.x - (W + 40) * S, display.y * 0.85 end
+    -- toujours dans l'écran (position enregistrée en pixels : la résolution a pu changer depuis)
+    ax = math.max(0, math.min(ax, display.x - w - 8 * S))
+    ay = math.max(h + 8 * S, math.min(ay, display.y))
     local want_x, want_y = ax, ay - h
     if not dragging then imgui.set_next_window_pos(Vector2f.new(want_x, want_y), 1) end
     imgui.set_next_window_size(Vector2f.new(w + 8 * S, h + 8 * S), 1)
@@ -1062,26 +1163,30 @@ end)
 re.on_draw_ui(function()
     if not imgui.tree_node(TITLE .. " v" .. VERSION) then return end
     local changed
-    changed, cfg.show = imgui.checkbox("Afficher le panneau", cfg.show)
-    if changed then save_cfg() end
-    changed, cfg.hide_menus = imgui.checkbox("Masquer dans les menus du jeu (menu Start, carte…)", cfg.hide_menus)
-    if changed then save_cfg() end
+    if options_installed then
+        imgui.text("Réglages : menu Options du jeu > Paramètres de jeu > DPS meter.")
+    else
+        -- menu Options indisponible (jeu modifié par une mise à jour…) : réglages ici
+        changed, cfg.show = imgui.checkbox("Afficher le panneau", cfg.show)
+        if changed then save_cfg() end
+        changed, cfg.hide_menus = imgui.checkbox("Masquer dans les menus du jeu (menu Start, carte…)", cfg.hide_menus)
+        if changed then save_cfg() end
+        changed, cfg.scale = imgui.slider_float("Taille", cfg.scale, 0.6, 2.0, "%.2f")
+        if changed then save_cfg() end
+        changed, cfg.opacity = imgui.slider_float("Opacité du fond", cfg.opacity, 0.0, 1.0, "%.2f")
+        if changed then save_cfg() end
+        if fight and fight.demo then
+            if imgui.button("Arrêter la démo") then fight = nil; cfg.demo = false; save_cfg() end
+        elseif imgui.button("Démo") then
+            start_demo(); cfg.demo = true; save_cfg()
+        end
+    end
     imgui.text("Menu ouvert : fais glisser le panneau pour le déplacer.")
-    changed, cfg.scale = imgui.slider_float("Taille", cfg.scale, 0.6, 2.0, "%.2f")
-    if changed then save_cfg() end
-    changed, cfg.opacity = imgui.slider_float("Opacité du fond", cfg.opacity, 0.0, 1.0, "%.2f")
-    if changed then save_cfg() end
     changed, cfg.idle = imgui.slider_int("Fin du combat après (s)", cfg.idle, 5, 120)
     if changed then save_cfg() end
     if imgui.button("Remettre à zéro") then fight = nil end
     imgui.same_line()
     if imgui.button("Position par défaut") then cfg.x, cfg.y = -1, -1; save_cfg() end
-    imgui.same_line()
-    if fight and fight.demo then
-        if imgui.button("Arrêter la démo") then fight = nil; cfg.demo = false; save_cfg() end
-    elseif imgui.button("Démo") then
-        start_demo(); cfg.demo = true; save_cfg()
-    end
 
     changed, cfg.debug = imgui.checkbox("Journal des coups (diagnostic)", cfg.debug)
     if changed then save_cfg() end
