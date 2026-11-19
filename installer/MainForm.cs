@@ -84,6 +84,22 @@ namespace DpsMetersInstaller
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
+        [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr hwnd, string appName, string idList);
+
+        /// <summary>Barres de défilement sombres (thème « DarkMode_Explorer », Windows 10 1809+ et 11), au lieu du gris clair par défaut.</summary>
+        public static void DarkScrollbars(IntPtr hwnd)
+        {
+            try
+            {
+                SetWindowTheme(hwnd, "DarkMode_Explorer", null);
+            }
+            catch (Exception)
+            {
+                // vieux Windows : barres claires
+            }
+        }
+
         /// <summary>Barre de titre sombre (Windows 10 20H1+ et 11).</summary>
         public static void DarkTitleBar(IntPtr hwnd)
         {
@@ -398,6 +414,7 @@ namespace DpsMetersInstaller
             _close.Click += (s, e) => Close();
             _install.Enabled = false;
 
+            _list.HandleCreated += (s, e) => Ui.DarkScrollbars(_list.Handle);
             Controls.AddRange(new Control[] { _list, _install, _close, _progress, _status, _sig });
             Layout += (s, e) => DoLayout();
         }
@@ -472,7 +489,7 @@ namespace DpsMetersInstaller
             if (_logo != null) g.DrawImage(_logo, m, Ui.D(34), ls, ls);
             float tx = m + ls + Ui.D(16);
             Ui.DrawText(g, "DPS meters", Ui.Title, Ui.Text, new RectangleF(tx, Ui.D(26), Ui.D(400), Ui.D(44)));
-            Ui.DrawText(g, "Choisis tes jeux puis clique sur Installer. Les mises à jour se feront ensuite toutes seules.",
+            Ui.DrawText(g, "Choisis tes jeux puis clique sur Installer. Relance-le de temps en temps pour les mises à jour.",
                 Ui.Body, Ui.Muted, new RectangleF(tx, Ui.D(70), ClientSize.Width - tx - m, Ui.D(22)));
             using (var pen = new Pen(Ui.Line)) g.DrawLine(pen, m, Ui.D(HeaderH) - Ui.D(16), ClientSize.Width - m, Ui.D(HeaderH) - Ui.D(16));
         }

@@ -50,7 +50,7 @@ namespace DpsMetersInstaller
 
     internal sealed class Meter
     {
-        public string Id, Name, Game, Exe, Process, LoaderId, Target, VersionPath, Tagline, After;
+        public string Id, Name, Game, Folder, Exe, Process, LoaderId, Target, VersionPath, Tagline, After;
         public int SteamAppId;
         public List<MeterFile> Files = new List<MeterFile>();
         /// <summary>Fichiers hors de <see cref="Target"/>, chemins relatifs au dossier du jeu (ex : le script Lua dans reframework\autorun, dossier partagé avec d'autres mods).</summary>
@@ -114,7 +114,7 @@ namespace DpsMetersInstaller
             {
                 var m = new Meter
                 {
-                    Id = Str(o, "id"), Name = Str(o, "name"), Game = Str(o, "game"), Exe = Str(o, "exe"), Process = Str(o, "process"),
+                    Id = Str(o, "id"), Name = Str(o, "name"), Game = Str(o, "game"), Folder = Str(o, "folder"), Exe = Str(o, "exe"), Process = Str(o, "process"),
                     LoaderId = Str(o, "loader"), Target = Str(o, "target"), VersionPath = Str(o, "version"),
                     Tagline = Str(o, "tagline"), After = Str(o, "after"),
                     SteamAppId = o.TryGetValue("steamAppId", out object id) ? Convert.ToInt32(id) : 0,
@@ -176,7 +176,7 @@ namespace DpsMetersInstaller
             {
                 try
                 {
-                    string dir = Path.Combine(root, "steamapps", "common", m.Game);
+                    string dir = Path.Combine(root, "steamapps", "common", m.Folder ?? m.Game); // "folder" : dossier Steam quand il diffère du nom du jeu
                     if (File.Exists(Path.Combine(dir, m.Exe))) return dir;
                 }
                 catch (Exception)

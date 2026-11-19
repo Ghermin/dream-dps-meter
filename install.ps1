@@ -42,7 +42,8 @@ function Get-SteamLibraries {
 function Find-Game($meter, $libraries) {
     foreach ($root in $libraries) {
         # [IO.Path] et non Join-Path : Join-Path échoue sur un lecteur qui n'existe pas (E:\SteamLibrary...)
-        $candidate = [IO.Path]::Combine($root, 'steamapps', 'common', $meter.game)
+        $folder = if ($meter.folder) { $meter.folder } else { $meter.game }  # dossier Steam quand il diffère du nom du jeu
+        $candidate = [IO.Path]::Combine($root, 'steamapps', 'common', $folder)
         if (Test-Path -LiteralPath ([IO.Path]::Combine($candidate, $meter.exe))) { return $candidate }
     }
     return $null

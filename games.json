@@ -40,7 +40,8 @@
     {
       "id": "wilds",
       "name": "Wilds DPS Meter",
-      "game": "MonsterHunterWilds",
+      "game": "Monster Hunter Wilds",
+      "folder": "MonsterHunterWilds",
       "steamAppId": 2246340,
       "exe": "MonsterHunterWilds.exe",
       "process": "MonsterHunterWilds",
