@@ -6,6 +6,7 @@ Un DPS meter par jeu, chacun dans son dossier, plus un installeur commun. Le REA
 
 - `shape-of-dreams/` : Dream DPS Meter (mod du gestionnaire de mods du jeu, `about/` = fichiers du menu Mods).
 - `blackveil/` : Blackveil DPS Meter (plugin BepInEx 5).
+- `mh-wilds/` : Wilds DPS Meter, script Lua REFramework pour Monster Hunter Wilds (voir plus bas).
 - `games.json` : la liste des DPS meters, lue par l'installeur et `install.ps1` (fichiers à télécharger, dossier cible, chargeur de mods). **Ajouter un jeu ne demande pas de recompiler l'installeur.**
 - `installer/` : l'installeur Windows (`Installer-DPS-Meters.exe`, WinForms .NET Framework 4.8) et `Installer-DPS-Meters.bat` (secours sans fenêtre, lance `install.ps1`).
 - `docs/` : la page GitHub (https://ghermin.github.io/dream-dps-meter/), captures dans `docs/screens/`.
@@ -34,6 +35,26 @@ dotnet build installer -c Release          # installer\bin\Release\net48\Install
   `gh release upload installer installer\bin\Release\net48\Installer-DPS-Meters.exe --clobber`.
 - Tester l'installeur sur le dépôt local : `$env:DPS_METERS_REPO = 'file:///C:/chemin/du/depot/'` avant de le lancer.
 - Shape of Dreams, commandes console (mode développeur) : `dps_reset`, `dps_rebuild`, `dps_mock`.
+
+## Monster Hunter Wilds (`mh-wilds/`)
+
+- Chargeur : REFramework (`dinput8.dll`), nightly `REFramework-nightly/releases/latest/download/REFramework.zip` (DLL unique pour tous les jeux RE Engine ; la release stable date de mars 2025 et ne suit plus les patchs du jeu). Déjà présent : pas réinstallé.
+- `src/wilds_dps_meter.lua` (seul fichier lu dans `reframework\autorun`, qui n'est pas parcouru récursivement) fait `require("wilds_dps_meter.core")` ; le code est dans `src/wilds_dps_meter/`.
+- `autorun` est partagé avec les autres mods : dans `games.json`, `target` = notre sous-dossier, et le point d'entrée est dans `extra` (chemins relatifs au jeu, retirés un par un à la désinstallation). Ne jamais mettre `target` sur `reframework\autorun`.
+- Pas de mise à jour auto : le Lua de REFramework n'a ni réseau ni `os.execute`. `"autoUpdate": false` : l'installeur compare `<target>\version.txt` à la dernière version et propose « Mettre à jour ».
+- `.\mh-wilds\deploy.ps1` copie `src` dans le jeu ; en jeu, menu REFramework (Inser) > ScriptRunner > Reset Scripts.
+- Tester sans combat : bouton « Démo » du menu, ou `"demo": true` dans `reframework\data\wilds_dps_meter.json` avant le lancement. Le script écrit dans `re2_framework_log.txt` (dossier du jeu) une ligne au chargement (hook et types trouvés) et une au premier affichage du panneau (ou la première erreur de dessin). Les `[error]` de `Scan.cpp` / `IntegrityCheckBypass` viennent de REFramework et sont sans conséquence.
+- Le panneau est dessiné à la main (draw list ImGui dans une fenêtre sans fond ni titre) : il ne se déplace à la souris que menu REFramework ouvert.
+- `.\release.ps1 -Mod wilds` copie `src` dans `release/` (tag `wilds-vX.Y.Z`).
+Ce qui a été vérifié en jeu (solo), avec des sondes (`mh-wilds/dev/wilds_dps_probe.lua`, jamais publiée) :
+- Dégâts : après `app.EnemyCharacter.evHit_Damage(app.HitInfo)`, `HitInfo:get_DamageData().FinalDamage` = perte de PV exacte (les PV ne baissent qu'ensuite, dans `evDamage_Health` : lire les PV avant/après le hook ne donne rien). Attaquant : `HitInfo:getActualAttackOwner()` (« MasterPlayer » = soi). Coups de monstre à monstre et décor (« Gm… ») ignorés.
+- Palico : `app.OtomoCharacter:get_OwnerHunterCharacter()`, ses dégâts vont à son chasseur.
+- Grand monstre : `EnemyCharacter._Context._Em:get_IsBoss()` ; mort : `get_HealthMgr():get_IsDead()` (vérifié à chaque image).
+- Détail d'un coup : `app.cEnemyStockDamage.mcEnemyHitMarkManager.playHitMarkEffect(cCalcDamage, HitInfo)`, champs `Physical`, `Element` (dégâts) et `Poison`, `Paralyse`, `Sleep`, `Blast`, `Stun`, `Stamina`, `Ride` (accumulation, pas des dégâts). Élément de l'arme : `HunterCharacter:get_HunterStatus():get_AttackPower():get_AttibuteType()` (sic), enum `app.WeaponDef.ATTR`.
+- Jauges du monstre : `_Em.Conditions` (un champ, pas une méthode : lire via méthode puis champ / `<X>k__BackingField`) `._Conditions[]` de types `app.cEnemyBadCondition<X>` (`get_IsValid`, `get_IsActive`, `get_Value`/`get_LimitValue`, `get_CurrentTimer`/`get_ActivateTime`) ; épuisement à part : `Conditions.Tired` (`get_Stamina`/`get_DefaultStamina`).
+- Menu ouvert (Start, carte, coffre de fin) : `app.GUIManager:get_IsHighHudInput()` vaut **true** quand un menu prend la main.
+- Poison / nitro (dégâts sans coup, `evDamage(cApplyEventParam)` par nom de `DamageType`) : pas encore vu en jeu. Multi : pas encore testé (coups des autres joueurs, total officiel `app.cQuestFlowParam.setSharedQuestAwardInfo(userIndex, cQuestAwardSync).award05`).
+- Sondes : n'appeler **que** des lectures (`get_…`, `is…`). Une sonde qui appelait toute méthode sans paramètre a exécuté `MissionManager.setActiveQuestLayout` en pleine quête (partie déréglée, jeu à relancer).
 - Blackveil, `Outils = true` dans `BepInEx\config\ghermin.blackveildpsmeter.cfg` : dump de l'interface (`F8`) et captures dans `BepInEx\shots`.
 
 ## Infos perso : rien de publié

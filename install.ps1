@@ -3,8 +3,9 @@
 #
 # Lit games.json (la liste des DPS meters), trouve les jeux dans les bibliothèques Steam et propose
 # d'installer (ou mettre à jour) ceux qu'on veut.
-# Sans question : $env:DPS_METERS = 'dreams', 'blackveil' ou 'dreams,blackveil' avant la commande.
-# Les mises à jour suivantes se font toutes seules au lancement du jeu.
+# Sans question : $env:DPS_METERS = 'dreams', 'blackveil', 'wilds' ou 'dreams,blackveil' avant la commande.
+# Les mises à jour suivantes se font toutes seules au lancement du jeu, sauf pour les scripts Lua
+# (MH Wilds, "autoUpdate": false dans games.json) : relancer la commande.
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -88,9 +89,12 @@ function Install-Meter($m, $game) {
     if (-not (Install-Loader $m.loader $game)) { return }
     $target = Join-Path $game $m.target
     foreach ($f in $m.files) { Save-File "$repo/$($f.src)?t=$bust" (Join-Path $target $f.dst) }
+    # 'extra' : fichiers relatifs au dossier du jeu, hors de 'target' (ex : script Lua dans reframework\autorun)
+    foreach ($f in @($m.extra | Where-Object { $_ })) { Save-File "$repo/$($f.src)?t=$bust" (Join-Path $game $f.dst) }
     $version = (Invoke-WebRequest -UseBasicParsing -Uri "$repo/$($m.version)?t=$bust").Content.Trim()
     Write-Host "  Installé : $($m.name) v$version" -ForegroundColor Green
     Write-Host "  $($m.after)"
+    if ($m.autoUpdate -eq $false) { Write-Host "  Pour les mises à jour : relance cette commande." }
 }
 
 Write-Host ''

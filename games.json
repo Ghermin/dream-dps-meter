@@ -36,9 +36,35 @@
       ],
       "tagline": "Dégâts par compétence et altération, DPS boss, classement en multi.",
       "after": "Rien d'autre à faire : il sera actif au prochain lancement du jeu."
+    },
+    {
+      "id": "wilds",
+      "name": "Wilds DPS Meter",
+      "game": "MonsterHunterWilds",
+      "steamAppId": 2246340,
+      "exe": "MonsterHunterWilds.exe",
+      "process": "MonsterHunterWilds",
+      "loader": "reframework",
+      "target": "reframework\\autorun\\wilds_dps_meter",
+      "version": "mh-wilds/release/version.txt",
+      "autoUpdate": false,
+      "files": [
+        { "src": "mh-wilds/release/wilds_dps_meter/core.lua", "dst": "core.lua" },
+        { "src": "mh-wilds/release/version.txt", "dst": "version.txt" }
+      ],
+      "extra": [
+        { "src": "mh-wilds/release/wilds_dps_meter.lua", "dst": "reframework\\autorun\\wilds_dps_meter.lua" }
+      ],
+      "tagline": "Dégâts par chasseur et DPS du combat, en direct.",
+      "after": "Rien d'autre à faire : il sera actif au prochain lancement du jeu (touche Inser pour le menu REFramework)."
     }
   ],
   "loaders": {
+    "reframework": {
+      "name": "REFramework",
+      "url": "https://github.com/praydog/REFramework-nightly/releases/latest/download/REFramework.zip",
+      "present": ["dinput8.dll"]
+    },
     "bepinex5": {
       "name": "BepInEx 5",
       "url": "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.6/BepInEx_win_x64_5.4.23.6.zip",

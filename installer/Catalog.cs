@@ -53,11 +53,16 @@ namespace DpsMetersInstaller
         public string Id, Name, Game, Exe, Process, LoaderId, Target, VersionPath, Tagline, After;
         public int SteamAppId;
         public List<MeterFile> Files = new List<MeterFile>();
+        /// <summary>Fichiers hors de <see cref="Target"/>, chemins relatifs au dossier du jeu (ex : le script Lua dans reframework\autorun, dossier partagé avec d'autres mods).</summary>
+        public List<MeterFile> Extra = new List<MeterFile>();
+        /// <summary>false : le DPS meter ne sait pas se mettre à jour lui-même (script Lua), l'installeur compare <see cref="Target"/>\version.txt à la dernière version.</summary>
+        public bool AutoUpdate = true;
         public Loader Loader;
 
         // État dans l'installeur
         public string GamePath;
         public string Latest;
+        public string InstalledVersion;
         public bool Selected;
         public MeterState State;
         public string Message;
@@ -65,6 +70,23 @@ namespace DpsMetersInstaller
         public bool Found => GamePath != null;
         public string TargetDir => Path.Combine(GamePath, Target);
         public bool Installed => Found && Files.Count > 0 && File.Exists(Path.Combine(TargetDir, Files[0].Dst));
+        public bool Outdated => !AutoUpdate && Installed && Latest != null && InstalledVersion != Latest;
+
+        /// <summary>Relit la version installée et coche la carte s'il y a quelque chose à faire.</summary>
+        public void Refresh()
+        {
+            InstalledVersion = null;
+            try
+            {
+                string v = Found ? Path.Combine(TargetDir, "version.txt") : null;
+                if (v != null && File.Exists(v)) InstalledVersion = File.ReadAllText(v).Trim('﻿', ' ', '\r', '\n', '\t');
+            }
+            catch (Exception)
+            {
+                // illisible : traité comme une version inconnue
+            }
+            Selected = Found && (!Installed || Outdated);
+        }
     }
 
     /// <summary>Lecture de games.json et recherche des jeux dans les bibliothèques Steam.</summary>
@@ -96,8 +118,10 @@ namespace DpsMetersInstaller
                     LoaderId = Str(o, "loader"), Target = Str(o, "target"), VersionPath = Str(o, "version"),
                     Tagline = Str(o, "tagline"), After = Str(o, "after"),
                     SteamAppId = o.TryGetValue("steamAppId", out object id) ? Convert.ToInt32(id) : 0,
+                    AutoUpdate = !(o.TryGetValue("autoUpdate", out object au) && au is bool b && !b),
                 };
                 foreach (Dictionary<string, object> f in Arr(o, "files")) m.Files.Add(new MeterFile { Src = Str(f, "src"), Dst = Str(f, "dst") });
+                foreach (Dictionary<string, object> f in Arr(o, "extra")) m.Extra.Add(new MeterFile { Src = Str(f, "src"), Dst = Str(f, "dst") });
                 if (m.LoaderId != null) loaders.TryGetValue(m.LoaderId, out m.Loader);
                 meters.Add(m);
             }
@@ -106,9 +130,9 @@ namespace DpsMetersInstaller
             foreach (var m in meters)
             {
                 m.GamePath = FindGame(m, libraries);
-                m.Selected = m.Found && !m.Installed;
                 try { m.Latest = Repo.GetText(Repo.Raw + m.VersionPath + Repo.Bust); }
                 catch (Exception) { m.Latest = null; }
+                m.Refresh();
             }
             return meters;
         }
@@ -178,32 +202,45 @@ namespace DpsMetersInstaller
             EnsureGameClosed(m);
             if (m.Loader != null) InstallLoader(m, report);
 
-            string target = m.TargetDir;
-            Directory.CreateDirectory(target);
-            foreach (var f in m.Files)
+            Directory.CreateDirectory(m.TargetDir);
+            // Tout télécharger avant d'écrire : pas d'installation à moitié faite si le réseau coupe.
+            var writes = new List<KeyValuePair<string, byte[]>>();
+            foreach (var (root, f) in m.Files.Select(f => (m.TargetDir, f)).Concat(m.Extra.Select(f => (m.GamePath, f))))
             {
                 report("Téléchargement de " + Path.GetFileName(f.Dst) + "…");
                 byte[] data = Repo.Get(Repo.Raw + f.Src + Repo.Bust);
                 bool dll = f.Dst.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
                 if (data.Length == 0 || (dll && (data.Length < 4096 || data[0] != 'M' || data[1] != 'Z')))
                     throw new UserError("Fichier reçu invalide (" + Path.GetFileName(f.Dst) + "). Réessaie dans un instant.");
-                string dst = Inside(target, f.Dst);
-                Directory.CreateDirectory(Path.GetDirectoryName(dst));
+                writes.Add(new KeyValuePair<string, byte[]>(Inside(root, f.Dst), data));
+            }
+            foreach (var w in writes)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(w.Key));
                 try
                 {
-                    File.WriteAllBytes(dst, data);
+                    File.WriteAllBytes(w.Key, w.Value);
                 }
                 catch (IOException)
                 {
-                    throw new UserError("Impossible d'écrire " + Path.GetFileName(f.Dst) + " : ferme le jeu et réessaie.");
+                    throw new UserError("Impossible d'écrire " + Path.GetFileName(w.Key) + " : ferme le jeu et réessaie.");
                 }
             }
+            m.Refresh();
         }
 
         public static void Uninstall(Meter m)
         {
             EnsureGameClosed(m);
+            // Les fichiers « extra » sont dans des dossiers partagés : on ne retire que les nôtres.
+            foreach (var f in m.Extra)
+            {
+                string p = Inside(m.GamePath, f.Dst);
+                if (File.Exists(p)) File.Delete(p);
+            }
             if (Directory.Exists(m.TargetDir)) Directory.Delete(m.TargetDir, true);
+            m.Refresh();
+            m.Selected = false;
         }
 
         private static void EnsureGameClosed(Meter m)

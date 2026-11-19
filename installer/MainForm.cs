@@ -275,10 +275,17 @@ namespace DpsMetersInstaller
                 case MeterState.Error: dot = Ui.Err; status = m.Message; break;
                 default:
                     if (!m.Found) { dot = Ui.Warn; status = "Jeu non trouvé"; _link1Text = LinkChoose; }
+                    else if (m.Outdated)
+                    {
+                        dot = Ui.Accent;
+                        status = "Mise à jour disponible · v" + m.Latest;
+                        _link1Text = LinkUninstall;
+                    }
                     else if (m.Installed)
                     {
                         dot = Ui.Ok;
-                        status = "Installé · mises à jour automatiques";
+                        status = m.AutoUpdate ? "Installé · mises à jour automatiques"
+                            : "Installé" + (m.InstalledVersion != null ? " · v" + m.InstalledVersion : "") + " · relance l'installeur pour les mises à jour";
                         _link1Text = LinkUninstall;
                     }
                     else
@@ -530,7 +537,8 @@ namespace DpsMetersInstaller
             int n = _cards.Count(c => c.Meter.Selected && c.Meter.Found);
             bool update = n > 0 && _cards.Where(c => c.Meter.Selected && c.Meter.Found).All(c => c.Meter.Installed);
             _install.Enabled = n > 0 && !_busy;
-            _install.Text = n == 0 ? "Installer" : (update ? "Réinstaller" : "Installer") + (n > 1 ? " (" + n + ")" : "");
+            bool outdated = update && _cards.Where(c => c.Meter.Selected && c.Meter.Found).All(c => c.Meter.Outdated);
+            _install.Text = n == 0 ? "Installer" : (outdated ? "Mettre à jour" : update ? "Réinstaller" : "Installer") + (n > 1 ? " (" + n + ")" : "");
         }
 
         private void ChooseFolder(MeterCard card)
@@ -546,7 +554,7 @@ namespace DpsMetersInstaller
                     return;
                 }
                 m.GamePath = dlg.SelectedPath;
-                m.Selected = !m.Installed;
+                m.Refresh();
                 m.State = MeterState.Idle;
                 SetStatus(m.Game + " : dossier choisi.");
                 card.Invalidate();

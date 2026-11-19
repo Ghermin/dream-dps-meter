@@ -3,6 +3,7 @@
 #   .\release.ps1 1.2.0                -> Dream DPS Meter, version choisie
 #   .\release.ps1 -Mod blackveil       -> Blackveil DPS Meter (Raiders of Blackveil), dernier chiffre +1
 #   .\release.ps1 -Mod blackveil 0.2.0 -> Blackveil DPS Meter, version choisie
+#   .\release.ps1 -Mod wilds           -> Wilds DPS Meter (MH Wilds, script Lua : copié, pas compilé)
 #   -NoPush                            -> compile et prépare les fichiers, sans commit ni push
 # - met à jour le numéro de version (code, et pour Shape of Dreams metadata.json + description du mod)
 # - compile en Release (trouve le jeu tout seul)
@@ -12,7 +13,7 @@
 # Un nouveau jeu : son dossier (comme blackveil\), une entrée ci-dessous et une entrée dans games.json.
 param(
     [Parameter(Position = 0)][string]$Version,
-    [ValidateSet('dreams', 'blackveil')][string]$Mod = 'dreams',
+    [ValidateSet('dreams', 'blackveil', 'wilds')][string]$Mod = 'dreams',
     [switch]$NoPush
 )
 
@@ -27,6 +28,11 @@ $mods = @{
     blackveil = @{
         Name = 'Blackveil DPS Meter'; Dir = 'blackveil'; Project = 'blackveil\BlackveilDpsMeter.csproj'; Dll = 'BlackveilDpsMeter.dll'
         Game = 'Raiders of Blackveil'; Probe = 'BepInEx\core\BepInEx.dll'; TagPrefix = 'blackveil-v'
+    }
+    wilds = @{
+        # Script Lua (REFramework) : rien à compiler, src\ est copié dans release\. Pas de mise à jour auto
+        # (le Lua de REFramework n'a pas accès au réseau) : les joueurs relancent l'installeur.
+        Name = 'Wilds DPS Meter'; Dir = 'mh-wilds'; Lua = $true; VersionFile = 'mh-wilds\src\wilds_dps_meter\core.lua'; TagPrefix = 'wilds-v'
     }
 }
 $cfg = $mods[$Mod]
@@ -43,6 +49,26 @@ if (-not ($Version -match '^\d+\.\d+\.\d+$')) { throw "Version attendue au forma
 if ([version]$Version -le [version]$current) { throw "La version $Version doit être supérieure à la version publiée ($current)." }
 $tag = "$($cfg.TagPrefix)$Version"
 if (git tag --list $tag) { throw "Le tag $tag existe déjà." }
+
+if ($cfg.Lua) {
+    Write-Host "$($cfg.Name) : $current -> $Version" -ForegroundColor Cyan
+    (Get-Content $cfg.VersionFile -Raw) -replace 'local VERSION = "[^"]*"', "local VERSION = `"$Version`"" | Set-Content $cfg.VersionFile -NoNewline
+    if (Test-Path $releaseDir) { Get-ChildItem $releaseDir -Exclude 'version.txt' | Remove-Item -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+    Copy-Item (Join-Path $cfg.Dir 'src\*') $releaseDir -Recurse -Force
+    Set-Content $versionTxt $Version -NoNewline
+    if ($NoPush) {
+        Write-Host "$($cfg.Name) v$Version préparée, rien n'est commité (-NoPush)." -ForegroundColor Green
+        return
+    }
+    git add -A
+    git commit -m "Release $($cfg.Name) v$Version"
+    git tag $tag
+    git push origin main --tags
+    if ($LASTEXITCODE -ne 0) { throw "Le push a échoué." }
+    Write-Host "$($cfg.Name) v$Version publiée. Les joueurs la reçoivent en relançant l'installeur." -ForegroundColor Green
+    return
+}
 
 # ---- dossier du jeu (pour les DLL référencées)
 function Find-GameDir {
